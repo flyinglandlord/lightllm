@@ -2,6 +2,7 @@ import torch
 import numpy as np
 from lightllm.common.basemodel import SplitFuseInferStateInfo
 from lightllm.common.req_manager import ReqManager
+from lightllm.server.router.vector_database import Settings, VectorDatabase
 from .infer_struct import LlamaInferStateInfo
 
 
@@ -40,3 +41,13 @@ class LlamaSplitFuseInferStateInfo(SplitFuseInferStateInfo):
         infer_status = super().create_inner_decode_infer_status()
         infer_status.other_kv_index = self.other_kv_index
         return
+
+class LlamaVecDBInferStateInfo(LlamaSplitFuseInferStateInfo):
+    def __init__(self):
+        super().__init__()
+        self.use_vec_db = True
+        self.add_to_vec_db = []
+
+    def init_some_extra_state(self, model, input_ids: torch.Tensor):
+        super().init_some_extra_state(model, input_ids)
+        self.vec_db = model.vector_db

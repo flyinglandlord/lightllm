@@ -1,4 +1,5 @@
 import asyncio
+import time
 import numpy as np
 import rpyc
 import torch
@@ -37,6 +38,7 @@ from lightllm.models.llava.model import LlavaTpPartModel
 from lightllm.models.qwen_vl.model import QWenVLTpPartModel
 from lightllm.models.internlm_xcomposer.model import InternlmComposerTpPartModel
 from lightllm.models.gemma_2b.model import Gemma_2bTpPartModel
+from lightllm.server.router.vector_database import VectorDatabase
 from lightllm.utils.infer_utils import set_random_seed
 from lightllm.utils.infer_utils import calculate_time, mark_start, mark_end
 from .pre_process import prepare_decode_inputs, prepare_prefill_inputs, splitfuse_prepare_decode_inputs
@@ -218,11 +220,11 @@ class ModelRpcServer(rpyc.Service):
             ans[req_id] = (req_obj.req_status, req_obj.cur_kv_len)
         return ans
 
-    @calculate_time(show=False, min_cost_ms=300)
+    @calculate_time(show=True, min_cost_ms=0.0)
     def exposed_prefill_batch(self, batch_id):
         return self.forward(batch_id, is_prefill=True)
 
-    @calculate_time(show=True, min_cost_ms=200)
+    @calculate_time(show=True, min_cost_ms=0.0)
     def exposed_decode_batch(self, batch_id):
         if self.is_splitfuse_mode:
             return self.splitfuse_forward(batch_id)
@@ -370,14 +372,17 @@ class ModelRpcServer(rpyc.Service):
     def splitfuse_forward(self, batch_id):
         output_dict = {}
         batch: InferBatch = self.cache.pop(batch_id)
+        tik = time.time()
         kwargs, decode_reqs, prefill_reqs = splitfuse_prepare_decode_inputs(
             batch, self.splitfuse_block_size, self.radix_cache, self.model.mem_manager
         )
+        tok = time.time()
         decode_req_num = len(decode_reqs)
         all_reqs = decode_reqs
         all_reqs.extend(prefill_reqs)
 
-        logits = self.model.splitfuse_forward(**kwargs)
+        logits, attn_time, ffn_time, prepare_time, other_time, recall_time = self.model.splitfuse_forward(**kwargs)
+        print(f"attn_time: {attn_time}, ffn_time: {ffn_time}, prepare_time: {prepare_time}, other_time: {other_time}, batch_time: {(tok - tik) * 1000}, recall_time: {recall_time}")
         next_token_ids, next_token_probs = sample(logits, all_reqs, self.eos_id)
         next_token_ids = next_token_ids.detach().cpu().numpy()
         next_token_logprobs = torch.log(next_token_probs).detach().cpu().numpy()

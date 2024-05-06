@@ -2,6 +2,7 @@ import os
 
 # os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
 import json
+import time
 import torch
 from typing import final
 
@@ -14,6 +15,7 @@ from lightllm.common.infer_utils import init_req_to_token_indexes
 from lightllm.common.build_utils import repair_config
 from lightllm.common.basemodel.triton_kernel.copy_kv_index_to_req import copy_kv_index_to_req
 from lightllm.common.basemodel.triton_kernel.splitfuse_copy_kv_index_to_req import splitfuse_copy_kv_index_to_req
+from lightllm.server.router.vector_database import Settings, VectorDatabase
 
 torch.backends.cudnn.enabled = True
 
@@ -46,6 +48,7 @@ class TpPartBaseModel:
         self.return_all_prompt_logprobs = kvargs.get("return_all_prompt_logprobs", False)
         self.use_dynamic_prompt_cache = kvargs.get("use_dynamic_prompt_cache", False)
         self.data_type = kvargs.get("data_type", "float16")
+        self.vector_db = VectorDatabase(dtype=torch.float32, head_num=32 // self.world_size_, head_dim=128, layer_num=32, settings=Settings())
         
         self._init_datatype()
         self._init_config()
@@ -317,7 +320,8 @@ class TpPartBaseModel:
         prefill_max_split_seq_len_in_batch,
         prefill_b_seq_len: torch.Tensor,
     ):
-
+        torch.cuda.synchronize()
+        tik = time.time()
         infer_state = self.splitfuse_infer_state_class()
         infer_state.use_dynamic_prompt_cache = self.use_dynamic_prompt_cache
         infer_state.batch_size = decode_req_num + prefill_req_num
@@ -356,7 +360,6 @@ class TpPartBaseModel:
                 dtype=self.data_type,
                 device="cuda",
             )
-
         # decode 部分
         if decode_req_num != 0:
             copy_kv_index_to_req(
@@ -375,11 +378,22 @@ class TpPartBaseModel:
                 prefill_b_seq_len,
                 infer_state.mem_index[decode_req_num:],
             )
+        torch.cuda.synchronize()
+        tok = time.time()
+        prepare_time = tok - tik
 
         infer_state.init_some_extra_state(self, input_ids)
         infer_state.create_inner_decode_infer_status()
-        predict_logics = self._splitfuse_forward(input_ids, infer_state)
-        return predict_logics
+        print(infer_state.req_manager.req_to_token_indexs)
+        print(infer_state.prefill_b_seq_len)
+        print(infer_state.prefill_b_split_ready_cache_len)
+        print(infer_state.prefill_b_split_start_loc)
+        print(infer_state.prefill_b_req_idx)
+        predict_logics, attn_time, ffn_time, other_time, recall_time = self._splitfuse_forward(input_ids, infer_state)
+        if getattr(infer_state, "use_vec_db", False):
+            for t in infer_state.add_to_vec_db:
+                t.join()
+        return predict_logics, attn_time, ffn_time, prepare_time, other_time, recall_time
 
     @final
     def _context_forward(self, input_ids, infer_state: InferStateInfo):
@@ -405,11 +419,24 @@ class TpPartBaseModel:
 
     @final
     def _splitfuse_forward(self, input_ids, infer_state: SplitFuseInferStateInfo):
+        attn_time = 0.0
+        ffn_time = 0.0
+        recall_time = 0.0
+        other_time = 0.0
         cuda_input_ids = input_ids
+        tik = time.time()
         input_embs = self.pre_infer.splitfuse_forward(cuda_input_ids, infer_state, self.pre_post_weight)
+        tok = time.time()
+        other_time += (tok - tik) * 1000
         for i in range(self.layers_num):
-            input_embs = self.layers_infer[i].splitfuse_forward(input_embs, infer_state, self.trans_layers_weight[i])
+            input_embs, attn, ffn, recall = self.layers_infer[i].splitfuse_forward(input_embs, infer_state, self.trans_layers_weight[i])
+            attn_time += attn
+            ffn_time += ffn
+            recall_time += recall
+        tik = time.time()
         predict_logics = self.post_infer.splitfuse_forward(
             input_embs, infer_state, self.pre_post_weight, return_logics=True
         )
-        return predict_logics
+        tok = time.time()
+        other_time += (tok - tik) * 1000
+        return predict_logics, attn_time, ffn_time, other_time, recall_time

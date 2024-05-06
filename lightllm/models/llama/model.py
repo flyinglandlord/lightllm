@@ -10,7 +10,7 @@ from lightllm.models.llama.layer_weights.ds_load_utils import load_ds_weights
 from lightllm.common.basemodel.layer_weights.hf_load_utils import load_hf_weights
 
 from lightllm.models.llama.infer_struct import LlamaInferStateInfo
-from lightllm.models.llama.splitfuse_infer_struct import LlamaSplitFuseInferStateInfo
+from lightllm.models.llama.splitfuse_infer_struct import LlamaSplitFuseInferStateInfo, LlamaVecDBInferStateInfo
 from lightllm.common.basemodel import TpPartBaseModel
 from lightllm.common.mem_utils import select_mem_manager_class
 from lightllm.utils.log_utils import init_logger
@@ -29,7 +29,7 @@ class LlamaTpPartModel(TpPartBaseModel):
 
     # infer state class
     infer_state_class = LlamaInferStateInfo
-    splitfuse_infer_state_class = LlamaSplitFuseInferStateInfo
+    splitfuse_infer_state_class = LlamaVecDBInferStateInfo
 
     def __init__(self, kvargs):
         super().__init__(kvargs)

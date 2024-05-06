@@ -1,5 +1,8 @@
+import time
 import torch
 import torch.distributed as dist
+
+from threading import Thread
 from ..transformer_layer_infer import TransformerLayerInfer
 from ...infer_struct import InferStateInfo
 from ...splitfuse_infer_struct import SplitFuseInferStateInfo
@@ -122,13 +125,25 @@ class TransformerLayerInferTpl(TransformerLayerInfer):
         q, cache_kv  = self._get_qkv(input1, cache_kv, infer_state, layer_weight)
         input1 = None
         self._post_cache_kv(cache_kv, infer_state, layer_weight)
-        o = self._splitfuse_attention_kernel(q, infer_state, layer_weight)
+
+        o, query_time = self._splitfuse_attention_kernel(q, infer_state, layer_weight)
+
+        if getattr(infer_state, "use_vec_db", False):
+            key_vec = cache_kv[:, :self.tp_k_head_num_, :].reshape(-1, self.head_dim_ * self.tp_k_head_num_).cpu().numpy().astype('float32')
+            # print(key_vec, key_vec.shape)
+            def add_to_vec_db(key_vec):
+                infer_state.vec_db.index[0][self.layer_num_].add(key_vec)
+            t = Thread(target=add_to_vec_db, args=(key_vec,))
+            t.start()
+            infer_state.add_to_vec_db.append(t)
+        
         q = None
         o = self._get_o(o, infer_state, layer_weight)
         if self.world_size_ > 1:
             dist.all_reduce(o, op=dist.ReduceOp.SUM, async_op=False)
         input_embding.add_(o.view(-1, self.embed_dim_))
-        return
+        
+        return query_time
 
     # @mark_cost_time("trans context ffn forward time cost")  # dont to remove this, will make performence down, did not know why
     def _splitfuse_ffn(self, input_embdings, infer_state: SplitFuseInferStateInfo, layer_weight):
@@ -155,8 +170,16 @@ class TransformerLayerInferTpl(TransformerLayerInfer):
         return input_embdings
     
     def splitfuse_forward(self, input_embdings, infer_state: SplitFuseInferStateInfo, layer_weight):
-        self._splitfuse_attention(input_embdings,
+        torch.cuda.synchronize()
+        tik = time.time()
+        query_time = self._splitfuse_attention(input_embdings,
                             infer_state,
                             layer_weight=layer_weight)
+        torch.cuda.synchronize()
+        attn_time = (time.time() - tik) * 1000
+        torch.cuda.synchronize()
+        tik = time.time()
         self._splitfuse_ffn(input_embdings, infer_state, layer_weight)
-        return input_embdings
+        torch.cuda.synchronize()
+        ffn_time = (time.time() - tik) * 1000
+        return input_embdings, attn_time, ffn_time, query_time

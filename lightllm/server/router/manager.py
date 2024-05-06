@@ -128,7 +128,6 @@ class RouterManager:
                     )
                     pass
                 self.stats_tool.print_stats()
-
             if self.running_batch is None:
                 await asyncio.sleep(0.01)  # 10ms
 

@@ -1,3 +1,5 @@
+import time
+from lightllm.utils.infer_utils import calculate_time
 import torch
 import torch.functional as F
 import torch.distributed as dist
@@ -163,6 +165,51 @@ class LlamaTransformerLayerInfer(TransformerLayerInferTpl):
 
         return o_tensor
 
+    def _vec_db_context_attention(self, q, infer_state: SplitFuseInferStateInfo, layer_weight, o_tensor):
+        # Only support prefill_req_num = 1
+        assert infer_state.use_vec_db
+        assert infer_state.prefill_req_num == 1
+        calcu_shape1 = (-1, self.tp_q_head_num_, self.head_dim_)
+        if infer_state.prefill_req_num > 0:
+            q_numpy = q.view(-1, self.tp_q_head_num_*self.head_dim_ ).cpu().numpy().astype(np.float32)
+            tik = time.time()
+            _, I = infer_state.vec_db.index[0][self.layer_num_].search(np.expand_dims(q_numpy[0], 0), 4096)
+            tok = time.time()
+            I = np.unique(I)
+            if I[0] == -1: I = I[1:]
+            new_prefill_ready_cache_len = torch.tensor([len(I)], dtype=torch.int32, device="cuda")
+            split_size = infer_state.prefill_b_seq_len[0] - infer_state.prefill_b_split_ready_cache_len[0]
+            new_prefill_b_seq_len = torch.tensor([new_prefill_ready_cache_len + split_size], dtype=torch.int32, device="cuda")
+            new_req_to_token_indexs = torch.tensor(I, dtype=torch.int32, device="cuda")
+            new_req_to_token_indexs = torch.concat([new_req_to_token_indexs, infer_state.req_manager.req_to_token_indexs[0, -split_size:]], dim=0)
+            new_req_to_token_indexs = new_req_to_token_indexs.unsqueeze(0)
+
+            infer_state.parrall_stream.wait_event(infer_state.start_event)
+            # infer_state.start_event.wait(infer_state.parrall_stream)
+            with torch.cuda.stream(infer_state.parrall_stream):
+                # assert torch.cuda.current_stream().cuda_stream == infer_state.parrall_stream.cuda_stream
+                splitfuse_context_attention_fwd(
+                    q[infer_state.decode_req_num :, :].view(calcu_shape1),
+                    infer_state.mem_manager.kv_buffer[self.layer_num_][:, 0 : self.tp_k_head_num_, :],
+                    infer_state.mem_manager.kv_buffer[self.layer_num_][
+                        :, self.tp_k_head_num_ : self.tp_k_head_num_ + self.tp_v_head_num_, :
+                    ],
+                    o_tensor[infer_state.decode_req_num :, :].view(calcu_shape1),
+                    1,
+                    new_req_to_token_indexs,
+                    infer_state.prefill_b_req_idx,
+                    infer_state.prefill_b_split_start_loc,
+                    new_prefill_ready_cache_len,
+                    new_prefill_b_seq_len,
+                    infer_state.prefill_max_split_seq_len_in_batch,
+                )
+            infer_state.end_event.record(infer_state.parrall_stream)
+            torch.cuda.default_stream().wait_event(infer_state.end_event)
+            # infer_state.event.wait(torch.cuda.default_stream())
+            # assert torch.cuda.current_stream().cuda_stream == torch.cuda.default_stream().cuda_stream
+            # assert torch.cuda.default_stream().cuda_stream != infer_state.parrall_stream.cuda_stream
+            return (tok-tik) * 1000
+
     def _splitfuse_attention_kernel(
         self, q, infer_state: SplitFuseInferStateInfo, layer_weight, out=None
     ) -> torch.Tensor:
@@ -175,6 +222,11 @@ class LlamaTransformerLayerInfer(TransformerLayerInferTpl):
                 layer_weight,
                 out=o_tensor[0 : infer_state.decode_req_num, :],
             )
+        
+        if getattr(infer_state, "use_vec_db", False) and infer_state.prefill_req_num > 0 and infer_state.prefill_b_split_ready_cache_len[0] >= 4096:
+            query_time = self._vec_db_context_attention(q, infer_state, layer_weight, o_tensor)
+            return o_tensor, query_time
+
         calcu_shape1 = (-1, self.tp_q_head_num_, self.head_dim_)
         if infer_state.prefill_req_num > 0:
             infer_state.parrall_stream.wait_event(infer_state.start_event)
@@ -201,7 +253,7 @@ class LlamaTransformerLayerInfer(TransformerLayerInferTpl):
             # infer_state.event.wait(torch.cuda.default_stream())
             # assert torch.cuda.current_stream().cuda_stream == torch.cuda.default_stream().cuda_stream
             # assert torch.cuda.default_stream().cuda_stream != infer_state.parrall_stream.cuda_stream
-        return o_tensor
+        return o_tensor, 0.0
 
     def _splitfuse_attention_kernel_int8kv(
         self, q, infer_state: SplitFuseInferStateInfo, layer_weight, out=None

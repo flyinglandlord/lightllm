@@ -393,6 +393,7 @@ class TpPartBaseModel:
         if getattr(infer_state, "use_vec_db", False):
             for t in infer_state.add_to_vec_db:
                 t.join()
+        print("end")
         return predict_logics, attn_time, ffn_time, prepare_time, other_time, recall_time
 
     @final

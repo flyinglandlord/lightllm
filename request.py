@@ -6,8 +6,8 @@ port = 8000
 url = 'http://localhost:%d/generate' % port
 headers = {'Content-Type': 'application/json'}
 
-prompt = "The grass is green. The sky is blue. " * 400 + "The pass key is 71432. Remember it. 71432 is the pass key. " + "The sky is blue. The grass is green. " * 400 + \
-             "The pass key is also 12086. Remember it. 12086 is also the pass key. " + "The grass is green. The sky is blue. " * 400
+prompt = "The grass is green. The sky is blue. " * 4000 + "The pass key is 71432. Remember it. 71432 is the pass key. " + "The sky is blue. The grass is green. " * 4000 + \
+             "The pass key is also 12086. Remember it. 12086 is also the pass key. " + "The grass is green. The sky is blue. " * 4000
 qa = """Question: What are the pass keys?\nAnswer:"""
 
 data = {

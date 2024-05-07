@@ -222,11 +222,11 @@ class LlamaTransformerLayerInfer(TransformerLayerInferTpl):
                 layer_weight,
                 out=o_tensor[0 : infer_state.decode_req_num, :],
             )
-        
+        """
         if getattr(infer_state, "use_vec_db", False) and infer_state.prefill_req_num > 0 and infer_state.prefill_b_split_ready_cache_len[0] >= 4096:
             query_time = self._vec_db_context_attention(q, infer_state, layer_weight, o_tensor)
             return o_tensor, query_time
-
+        """
         calcu_shape1 = (-1, self.tp_q_head_num_, self.head_dim_)
         if infer_state.prefill_req_num > 0:
             infer_state.parrall_stream.wait_event(infer_state.start_event)

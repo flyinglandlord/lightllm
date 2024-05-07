@@ -132,7 +132,9 @@ class TransformerLayerInferTpl(TransformerLayerInfer):
             key_vec = cache_kv[:, :self.tp_k_head_num_, :].reshape(-1, self.head_dim_ * self.tp_k_head_num_).cpu().numpy().astype('float32')
             # print(key_vec, key_vec.shape)
             def add_to_vec_db(key_vec):
+                tik = time.time()
                 infer_state.vec_db.index[0][self.layer_num_].add(key_vec)
+                print((time.time() - tik) * 1000)
             t = Thread(target=add_to_vec_db, args=(key_vec,))
             t.start()
             infer_state.add_to_vec_db.append(t)

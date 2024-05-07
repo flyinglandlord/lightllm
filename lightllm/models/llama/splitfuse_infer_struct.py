@@ -46,7 +46,9 @@ class LlamaVecDBInferStateInfo(LlamaSplitFuseInferStateInfo):
     def __init__(self):
         super().__init__()
         self.use_vec_db = True
-        self.add_to_vec_db = []
+        self.add_to_vec_db_threads = []
+        self.kv_workspace = None
+        self.past_kv_index = None
 
     def init_some_extra_state(self, model, input_ids: torch.Tensor):
         super().init_some_extra_state(model, input_ids)

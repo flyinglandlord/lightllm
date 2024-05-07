@@ -381,8 +381,8 @@ class ModelRpcServer(rpyc.Service):
         all_reqs = decode_reqs
         all_reqs.extend(prefill_reqs)
 
-        logits, attn_time, ffn_time, prepare_time, other_time, recall_time = self.model.splitfuse_forward(**kwargs)
-        print(f"attn_time: {attn_time}, ffn_time: {ffn_time}, prepare_time: {prepare_time}, other_time: {other_time}, batch_time: {(tok - tik) * 1000}, recall_time: {recall_time}")
+        logits, attn_time, ffn_time, prepare_time, other_time = self.model.splitfuse_forward(**kwargs)
+        print(f"attn_time: {attn_time},ffn_time: {ffn_time},  prepare_time: {prepare_time}, other_time: {other_time}, batch_time: {(tok - tik) * 1000}")
         next_token_ids, next_token_probs = sample(logits, all_reqs, self.eos_id)
         next_token_ids = next_token_ids.detach().cpu().numpy()
         next_token_logprobs = torch.log(next_token_probs).detach().cpu().numpy()

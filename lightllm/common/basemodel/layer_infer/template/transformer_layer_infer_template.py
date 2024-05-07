@@ -1,6 +1,7 @@
 import time
 import torch
 import torch.distributed as dist
+import numpy as np
 
 from threading import Thread
 from ..transformer_layer_infer import TransformerLayerInfer
@@ -44,6 +45,18 @@ class TransformerLayerInferTpl(TransformerLayerInfer):
     
     def _post_cache_kv(self, cache_kv, infer_state:InferStateInfo, layer_weight):
         mem_manager = infer_state.mem_manager
+
+        if getattr(infer_state, "use_vec_db", False):
+            key_vec = cache_kv[:, :self.tp_k_head_num_, :].reshape(-1, self.head_dim_ * self.tp_k_head_num_).cpu().numpy().astype('float32')
+            # print(key_vec, key_vec.shape)
+            def add_to_vec_db(key_vec):
+                tik = time.time()
+                infer_state.vec_db.index[0][self.layer_num_].add(key_vec)
+                #print((time.time() - tik) * 1000)
+            t = Thread(target=add_to_vec_db, args=(key_vec,))
+            t.start()
+            infer_state.add_to_vec_db_threads.append(t)
+        
         if not infer_state.mem_is_contiguous:
             self._copy_kv_to_mem_cache(cache_kv, infer_state.mem_index, mem_manager)
             return
@@ -123,29 +136,19 @@ class TransformerLayerInferTpl(TransformerLayerInfer):
         input1 = self._att_norm(input_embding, infer_state, layer_weight)
         cache_kv = self._pre_cache_kv(infer_state, layer_weight)
         q, cache_kv  = self._get_qkv(input1, cache_kv, infer_state, layer_weight)
+        torch.cuda.synchronize()
         input1 = None
         self._post_cache_kv(cache_kv, infer_state, layer_weight)
-
-        o, query_time = self._splitfuse_attention_kernel(q, infer_state, layer_weight)
-
-        if getattr(infer_state, "use_vec_db", False):
-            key_vec = cache_kv[:, :self.tp_k_head_num_, :].reshape(-1, self.head_dim_ * self.tp_k_head_num_).cpu().numpy().astype('float32')
-            # print(key_vec, key_vec.shape)
-            def add_to_vec_db(key_vec):
-                tik = time.time()
-                infer_state.vec_db.index[0][self.layer_num_].add(key_vec)
-                print((time.time() - tik) * 1000)
-            t = Thread(target=add_to_vec_db, args=(key_vec,))
-            t.start()
-            infer_state.add_to_vec_db.append(t)
-        
+        torch.cuda.synchronize()
+        o = self._splitfuse_attention_kernel(q, infer_state, layer_weight)
+        torch.cuda.synchronize()
         q = None
         o = self._get_o(o, infer_state, layer_weight)
         if self.world_size_ > 1:
             dist.all_reduce(o, op=dist.ReduceOp.SUM, async_op=False)
         input_embding.add_(o.view(-1, self.embed_dim_))
         
-        return query_time
+        return
 
     # @mark_cost_time("trans context ffn forward time cost")  # dont to remove this, will make performence down, did not know why
     def _splitfuse_ffn(self, input_embdings, infer_state: SplitFuseInferStateInfo, layer_weight):
@@ -174,7 +177,7 @@ class TransformerLayerInferTpl(TransformerLayerInfer):
     def splitfuse_forward(self, input_embdings, infer_state: SplitFuseInferStateInfo, layer_weight):
         torch.cuda.synchronize()
         tik = time.time()
-        query_time = self._splitfuse_attention(input_embdings,
+        self._splitfuse_attention(input_embdings,
                             infer_state,
                             layer_weight=layer_weight)
         torch.cuda.synchronize()
@@ -184,4 +187,4 @@ class TransformerLayerInferTpl(TransformerLayerInfer):
         self._splitfuse_ffn(input_embdings, infer_state, layer_weight)
         torch.cuda.synchronize()
         ffn_time = (time.time() - tik) * 1000
-        return input_embdings, attn_time, ffn_time, query_time
+        return input_embdings, attn_time, ffn_time

@@ -384,17 +384,14 @@ class TpPartBaseModel:
 
         infer_state.init_some_extra_state(self, input_ids)
         infer_state.create_inner_decode_infer_status()
-        print(infer_state.req_manager.req_to_token_indexs)
-        print(infer_state.prefill_b_seq_len)
-        print(infer_state.prefill_b_split_ready_cache_len)
-        print(infer_state.prefill_b_split_start_loc)
-        print(infer_state.prefill_b_req_idx)
-        predict_logics, attn_time, ffn_time, other_time, recall_time = self._splitfuse_forward(input_ids, infer_state)
+        
+        predict_logics, attn_time, ffn_time, other_time = self._splitfuse_forward(input_ids, infer_state)
+
         if getattr(infer_state, "use_vec_db", False):
-            for t in infer_state.add_to_vec_db:
+            for t in infer_state.add_to_vec_db_threads:
                 t.join()
-        print("end")
-        return predict_logics, attn_time, ffn_time, prepare_time, other_time, recall_time
+        
+        return predict_logics, attn_time, ffn_time, prepare_time, other_time
 
     @final
     def _context_forward(self, input_ids, infer_state: InferStateInfo):
@@ -422,7 +419,6 @@ class TpPartBaseModel:
     def _splitfuse_forward(self, input_ids, infer_state: SplitFuseInferStateInfo):
         attn_time = 0.0
         ffn_time = 0.0
-        recall_time = 0.0
         other_time = 0.0
         cuda_input_ids = input_ids
         tik = time.time()
@@ -430,14 +426,13 @@ class TpPartBaseModel:
         tok = time.time()
         other_time += (tok - tik) * 1000
         for i in range(self.layers_num):
-            input_embs, attn, ffn, recall = self.layers_infer[i].splitfuse_forward(input_embs, infer_state, self.trans_layers_weight[i])
+            input_embs, attn, ffn = self.layers_infer[i].splitfuse_forward(input_embs, infer_state, self.trans_layers_weight[i])
             attn_time += attn
             ffn_time += ffn
-            recall_time += recall
         tik = time.time()
         predict_logics = self.post_infer.splitfuse_forward(
             input_embs, infer_state, self.pre_post_weight, return_logics=True
         )
         tok = time.time()
         other_time += (tok - tik) * 1000
-        return predict_logics, attn_time, ffn_time, other_time, recall_time
+        return predict_logics, attn_time, ffn_time, other_time

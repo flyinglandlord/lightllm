@@ -49,6 +49,8 @@ from lightllm.server.io_struct import ReqRunStatus
 from lightllm.utils.log_utils import init_logger
 from lightllm.server.router.dynamic_prompt.radix_cache import RadixCache
 
+logger = init_logger(__name__)
+
 
 class ModelRpcServer(rpyc.Service):
     def exposed_init_model(self, kvargs):
@@ -114,7 +116,7 @@ class ModelRpcServer(rpyc.Service):
                     self.model = LlamaTpPartModelWQuant(model_kvargs)
                 elif any("w8a8" in mode_ for mode_ in self.mode):
                     self.model = LlamaTpPartModelAWQuant(model_kvargs)
-                elif any('quik_activation_weight' in mode_ for mode_ in self.mode):
+                elif any("quik_activation_weight" in mode_ for mode_ in self.mode):
                     # Supports both w4a4 and w8a8 modes, with automatic mode selection upon model loading.
                     self.model = LlamaTpPartModelQuik(model_kvargs)
                 else:
@@ -382,7 +384,11 @@ class ModelRpcServer(rpyc.Service):
         all_reqs.extend(prefill_reqs)
 
         logits, attn_time, ffn_time, prepare_time, other_time = self.model.splitfuse_forward(**kwargs)
-        print(f"attn_time: {attn_time},ffn_time: {ffn_time},  prepare_time: {prepare_time}, other_time: {other_time}, batch_time: {(tok - tik) * 1000}")
+        logger.debug(
+            f"attn_time: {attn_time}, ffn_time: {ffn_time}, \
+              prepare_time: {prepare_time}, other_time: {other_time}, \
+              batch_time: {(tok - tik) * 1000}"
+        )
         next_token_ids, next_token_probs = sample(logits, all_reqs, self.eos_id)
         next_token_ids = next_token_ids.detach().cpu().numpy()
         next_token_logprobs = torch.log(next_token_probs).detach().cpu().numpy()

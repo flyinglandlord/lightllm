@@ -1,6 +1,6 @@
 #!/bin/bash
-MODEL_PATH=/mnt/nvme0/models/llama2-7b-chat
-CUDA_VISIBLE_DEVICES=1,4 python -m lightllm.server.api_server --model_dir $MODEL_PATH \
+MODEL_PATH=/home/chenjunyi/.cache/huggingface/hub/models--togethercomputer--LLaMA-2-7B-32K/snapshots/46c24bb5aef59722fa7aa6d75e832afd1d64b980
+CUDA_VISIBLE_DEVICES=6,7 python -m lightllm.server.api_server --model_dir $MODEL_PATH \
         --tp 2 \
         --max_req_total_len 130000 \
         --tokenizer_mode auto \

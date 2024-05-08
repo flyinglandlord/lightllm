@@ -40,7 +40,7 @@ class TpPartBaseModel:
         self.weight_dir_ = kvargs["weight_dir"]
         self.max_total_token_num = kvargs["max_total_token_num"]
         self.load_way = kvargs.get("load_way", "HF")
-        self.mode = [m.replace('int4weight', 'w4a16').replace('int8weight', 'w8a16') for m in kvargs.get("mode", [])]
+        self.mode = [m.replace("int4weight", "w4a16").replace("int8weight", "w8a16") for m in kvargs.get("mode", [])]
         self.weight_dict = kvargs.get("weight_dict", None)
         self.finetune_config = kvargs.get("finetune_config", None)
         self.max_req_num = kvargs.get("max_req_num", 1000)
@@ -48,8 +48,10 @@ class TpPartBaseModel:
         self.return_all_prompt_logprobs = kvargs.get("return_all_prompt_logprobs", False)
         self.use_dynamic_prompt_cache = kvargs.get("use_dynamic_prompt_cache", False)
         self.data_type = kvargs.get("data_type", "float16")
-        self.vector_db = VectorDatabase(dtype=torch.float32, head_num=32 // self.world_size_, head_dim=128, layer_num=32, settings=Settings())
-        
+        self.vector_db = VectorDatabase(
+            dtype=torch.float32, head_num=32 // self.world_size_, head_dim=128, layer_num=32, settings=Settings()
+        )
+
         self._init_datatype()
         self._init_config()
         self._verify_must()
@@ -148,7 +150,7 @@ class TpPartBaseModel:
         elif self.data_type in ["bf16", "bfloat16"]:
             self.data_type = torch.bfloat16
         elif self.data_type in ["fp32", "float32"]:
-            self.data_type =torch.float32
+            self.data_type = torch.float32
         else:
             raise ValueError(f"Unsupport datatype {self.data_type}!")
 
@@ -384,13 +386,19 @@ class TpPartBaseModel:
 
         infer_state.init_some_extra_state(self, input_ids)
         infer_state.create_inner_decode_infer_status()
-        
+        if (
+            getattr(infer_state, "use_vec_db", False)
+            and prefill_req_num != 0
+            and infer_state.prefill_b_split_ready_cache_len[0] == 0
+        ):
+            infer_state.vec_db._free_vec_db(0)
+
         predict_logics, attn_time, ffn_time, other_time = self._splitfuse_forward(input_ids, infer_state)
 
         if getattr(infer_state, "use_vec_db", False):
             for t in infer_state.add_to_vec_db_threads:
                 t.join()
-        
+
         return predict_logics, attn_time, ffn_time, prepare_time, other_time
 
     @final
@@ -426,7 +434,9 @@ class TpPartBaseModel:
         tok = time.time()
         other_time += (tok - tik) * 1000
         for i in range(self.layers_num):
-            input_embs, attn, ffn = self.layers_infer[i].splitfuse_forward(input_embs, infer_state, self.trans_layers_weight[i])
+            input_embs, attn, ffn = self.layers_infer[i].splitfuse_forward(
+                input_embs, infer_state, self.trans_layers_weight[i]
+            )
             attn_time += attn
             ffn_time += ffn
         tik = time.time()

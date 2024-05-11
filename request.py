@@ -7,7 +7,6 @@ url = "http://localhost:%d/generate" % port
 headers = {"Content-Type": "application/json"}
 
 prompt = """ignore"""
-
 qa = """Question: What 1986 drama directed by Lee Doo-yong starred Lee Mi-sook?\nAnswer:"""
 
 data = {

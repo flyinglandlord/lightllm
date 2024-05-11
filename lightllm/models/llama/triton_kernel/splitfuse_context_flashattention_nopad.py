@@ -382,3 +382,34 @@ def splitfuse_context_attention_fwd_int8kv(
         num_stages=1,
     )
     return
+
+
+if __name__ == "__main__":
+    import torch
+
+    q = torch.randn(7, 16, 128).cuda()
+    k = torch.randn(7, 4, 128).cuda()
+    v = torch.randn(7, 4, 128).cuda()
+    o = torch.randn(7, 16, 128).cuda()
+    prefill_req_num = 1
+    req_to_tokens = torch.arange(0, 7).unsqueeze(0).cuda()
+    prefill_b_req_idx = torch.tensor([0]).cuda()
+    prefill_b_split_start_loc = torch.tensor([0]).cuda()
+    prefill_b_split_ready_cache_len = torch.tensor([5]).cuda()
+    prefill_b_seq_len = torch.tensor([7]).cuda()
+    prefill_max_split_seq_len_in_batch = 2
+    splitfuse_context_attention_fwd(
+        q,
+        k,
+        v,
+        o,
+        prefill_req_num,
+        req_to_tokens,
+        prefill_b_req_idx,
+        prefill_b_split_start_loc,
+        prefill_b_split_ready_cache_len,
+        prefill_b_seq_len,
+        prefill_max_split_seq_len_in_batch,
+    )
+    print(o)
+    print("Done")

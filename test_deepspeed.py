@@ -1,42 +1,38 @@
-
+import math
+from typing import List
 import torch
-import deepspeed
 from torch import Tensor
-from deepspeed import comm as dist
-from typing import Callable, Dict, TYPE_CHECKING, Any, Tuple
-
-class _AllToAll(torch.autograd.Function):
-    @staticmethod
-    def forward(
-            ctx: Any,
-            # TODO: replace with DS process group
-            group: torch.distributed.ProcessGroup,
-            input: Tensor) -> Tensor:  # type: ignore
-        ctx.group = group
-        input = input.contiguous()
-        output = torch.empty_like(input)
-        dist.all_to_all_single(output, input)
-        return output
- 
-    @staticmethod
-    def backward(ctx: Any, *grad_output: Tensor) -> Tuple[None, Tensor]:
-        return (None, _AllToAll.apply(ctx.group, *grad_output))
+from torch import distributed as dist
+from torch.distributed import ProcessGroup, all_to_all_single
+from deepspeed.accelerator import get_accelerator
+from deepspeed.utils import instrument_w_nvtx
+from deepspeed.ops import op_builder
+from deepspeed.utils import logger
     
 if __name__ == "__main__":
-    deepspeed.init_distributed()
-    from deepspeed.utils import groups
-    expert_group_name = "ep_size_4"
-    groups._create_expert_and_data_parallel(4)
-    ep = groups._get_expert_parallel_group(expert_group_name)
-    rank = torch.distributed.get_rank()
-    device_id = rank % torch.cuda.device_count()
-    device = torch.device(device_id)
-    inputs = torch.randn((4,1,1)).to(device)
+    quantizer_module = op_builder.QuantizerBuilder().load()
     
-    for i in range(4):
-        if rank==i:
-            print("rank:%d,input:"%(rank),inputs)
-        torch.distributed.barrier()
-    output = _AllToAll.apply(ep,inputs)
-    print("rank:%d,output:"%(rank),output)
-    torch.distributed.barrier()
+    tensor = torch.randn(42, 4096).cuda()
+    print(tensor)
+    intra_quant_int4, intra_q_scales = quantizer_module.swizzle_quant(tensor, 4096, 4,
+                                quantizer_module.Symmetric, 1, 1,
+                                8)
+    print(intra_quant_int4)
+    print(intra_q_scales)
+    #torch.cuda.synchronize()
+
+    local_output = intra_quant_int4
+    scale_output = intra_q_scales
+
+    global_input_tensor, global_scales = quantizer_module.quantized_reduction(
+                local_output, scale_output, 4096, 4096//8, 4, quantizer_module.Symmetric,
+                8)
+
+    print(global_input_tensor)
+    print(global_scales)
+    #torch.cuda.synchronize()
+
+    final_output = quantizer_module.dequantize(global_input_tensor, global_scales, global_scales.numel(),
+                                                       4, quantizer_module.Symmetric)
+    print(final_output)
+    #torch.cuda.synchronize()

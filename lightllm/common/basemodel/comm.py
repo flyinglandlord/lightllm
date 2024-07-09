@@ -41,19 +41,34 @@ def all_to_all_quant_reduce(tensors: List[Tensor], groups: {}) -> List[Tensor]: 
             intra_quant_group = max(tensor.shape[0], tensor.shape[1], global_world_size)
 
             inter_quant_group = intra_quant_group // local_world_size
-            intra_quant_int4, intra_q_scales = quantizer_module.swizzle_quant(tensor, intra_quant_group, 8,
+            intra_quant_int4, intra_q_scales = quantizer_module.swizzle_quant(tensor, intra_quant_group, 4,
                                                                               quantizer_module.Symmetric, 1, num_nodes,
                                                                               local_world_size)
-            if this_rank == 0: print(intra_quant_int4.shape, tensor.shape)
+            #if this_rank == 0: print(intra_quant_int4.shape, intra_q_scales.shape, tensor.shape)
+            #print(f'{this_rank}: finish quant stage 1')
+
             local_output = torch.empty_like(intra_quant_int4)
             scale_output = torch.empty_like(intra_q_scales)
             all_to_all_single(local_output, intra_quant_int4)
             all_to_all_single(scale_output, intra_q_scales)
-            print(f'{this_rank}: finish all_to_all_single')
+            #print(f'{this_rank}: finish all_to_all_single')
+            
             global_input_tensor, global_scales = quantizer_module.quantized_reduction(
-                local_output, scale_output, intra_quant_group, inter_quant_group, 8, quantizer_module.Symmetric,
+                local_output, scale_output, intra_quant_group, inter_quant_group, 4, quantizer_module.Symmetric,
                 local_world_size)
-            print('finish quant stage 2')
+            #print(f'{this_rank}: finish quant stage 2')
+
+            #if this_rank == 0: print(global_input_tensor.shape, global_scales.shape, tensor.shape)
+            final_output = quantizer_module.dequantize(global_input_tensor, global_scales, global_scales.numel(),
+                                                       4, quantizer_module.Symmetric)
+            #print(f'{this_rank}: finish quant stage 3')
+            #if this_rank == 0: print(final_output.shape, tensor.shape)
+            #print(final_output)
+
+            output_lst[idx] = torch.zeros_like(tensor, dtype=final_output.dtype).view(-1)
+            dist.all_gather_into_tensor(output_lst[idx], final_output)
+            output_lst[idx] = output_lst[idx].reshape(tensor.shape)
+            """
             global_output = torch.empty_like(global_input_tensor)
             global_scale_output = torch.empty_like(global_scales)
             all_to_all_single(global_output, global_input_tensor, group=None)
@@ -63,7 +78,8 @@ def all_to_all_quant_reduce(tensors: List[Tensor], groups: {}) -> List[Tensor]: 
             print('finish quant stage 3')
             assert final_output.numel(
             ) % num_nodes == 0, f"final_output.numel()={final_output.numel()} is not divisible by num_nodes={num_nodes}"
-            output_lst[idx] = (sum(list(final_output.chunk(num_nodes))) / num_nodes).view(-1)
+            """
+            #output_lst[idx] = final_output
     return output_lst
 
 

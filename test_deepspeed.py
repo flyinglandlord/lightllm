@@ -1,3 +1,4 @@
+import os
 import math
 from typing import List
 import torch
@@ -9,14 +10,18 @@ from deepspeed.utils import instrument_w_nvtx
 from deepspeed.ops import op_builder
 from deepspeed.utils import logger
     
+os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
+
 if __name__ == "__main__":
     quantizer_module = op_builder.QuantizerBuilder().load()
     
-    tensor = torch.randn(42, 4096).cuda()
+    tensor = torch.randn(8, 4096).cuda()
     print(tensor)
     intra_quant_int4, intra_q_scales = quantizer_module.swizzle_quant(tensor, 4096, 4,
                                 quantizer_module.Symmetric, 1, 1,
                                 8)
+    x = intra_quant_int4[0]
+    print(x)
     print(intra_quant_int4)
     print(intra_q_scales)
     #torch.cuda.synchronize()

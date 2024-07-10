@@ -19,67 +19,62 @@ def all_to_all_quant_reduce(tensors: List[Tensor], groups: {}) -> List[Tensor]: 
     global quantizer_module
     if quantizer_module is None:
         quantizer_module = op_builder.QuantizerBuilder().load()
-    local_world_size = get_accelerator().device_count()
     global_world_size = dist.get_world_size()
-    num_nodes = global_world_size // local_world_size
+    num_nodes = 1
     this_rank = dist.get_rank()
-    intra_idx = int(this_rank / local_world_size)
-    inter_idx = this_rank % local_world_size
     output_lst: List[Tensor] = [None] * len(tensors)
     for idx, tensor in enumerate(tensors):
-        if tensor.dim() == 1:
-            output_lst[idx] = reduce_scatter_coalesced([tensor])[0]
-        elif tensor.numel() % (2 * global_world_size) != 0:
-            # Due to the constraint of 2-stage all-to-all, the input tensor must be divisible by 2 * global_world_size
-            # Otherwise, all-to-all cannot be performed because of shape mismatch.
-            # See more at https://github.com/microsoft/DeepSpeed/pull/5056
-            logger.warning(
-                f"qgZ falls back to reduce_scatter because tensor size = {tensor.numel()} is not divisible by (2 * global_world_size) = {2 * global_world_size}. Please consider allocating a new world to enable qgZ"
-            )
-            output_lst[idx] = reduce_scatter_coalesced([tensor])[0]
-        else:
-            intra_quant_group = max(tensor.shape[0], tensor.shape[1], global_world_size)
+        """
+        current_size = tensor.shape[0]
+        padding_size = (8 - current_size % 8) % 8
+        padding_tensor = tensor[:padding_size, :]
+        tensor = torch.cat((tensor, padding_tensor), dim=0)
+        """
+        old_shape = tensor.shape
+        tensor = tensor.view(-1, 16)
 
-            inter_quant_group = intra_quant_group // local_world_size
-            intra_quant_int4, intra_q_scales = quantizer_module.swizzle_quant(tensor, intra_quant_group, 4,
-                                                                              quantizer_module.Symmetric, 1, num_nodes,
-                                                                              local_world_size)
-            #if this_rank == 0: print(intra_quant_int4.shape, intra_q_scales.shape, tensor.shape)
-            #print(f'{this_rank}: finish quant stage 1')
+        intra_quant_group = max(tensor.shape[0], tensor.shape[1], global_world_size)
 
-            local_output = torch.empty_like(intra_quant_int4)
-            scale_output = torch.empty_like(intra_q_scales)
-            all_to_all_single(local_output, intra_quant_int4)
-            all_to_all_single(scale_output, intra_q_scales)
-            #print(f'{this_rank}: finish all_to_all_single')
-            
-            global_input_tensor, global_scales = quantizer_module.quantized_reduction(
-                local_output, scale_output, intra_quant_group, inter_quant_group, 4, quantizer_module.Symmetric,
-                local_world_size)
-            #print(f'{this_rank}: finish quant stage 2')
+        inter_quant_group = intra_quant_group // global_world_size
+        intra_quant_int4, intra_q_scales = quantizer_module.swizzle_quant(tensor, intra_quant_group, 4,
+                                                                            quantizer_module.Symmetric, 1, num_nodes,
+                                                                            global_world_size)
+        #if this_rank == 0: print(intra_quant_int4.shape, intra_q_scales.shape, tensor.shape)
+        #print(f'{this_rank}: finish quant stage 1')
+        #print(intra_quant_int4.dtype)
+        local_output = torch.empty_like(intra_quant_int4)
+        scale_output = torch.empty_like(intra_q_scales)
+        all_to_all_single(local_output, intra_quant_int4)
+        all_to_all_single(scale_output, intra_q_scales)
+        #print(f'{this_rank}: finish all_to_all_single')
+        
+        global_input_tensor, global_scales = quantizer_module.quantized_reduction(
+            local_output, scale_output, intra_quant_group, inter_quant_group, 4, quantizer_module.Symmetric,
+            global_world_size)
+        #print(f'{this_rank}: finish quant stage 2')
 
-            #if this_rank == 0: print(global_input_tensor.shape, global_scales.shape, tensor.shape)
-            final_output = quantizer_module.dequantize(global_input_tensor, global_scales, global_scales.numel(),
-                                                       4, quantizer_module.Symmetric)
-            #print(f'{this_rank}: finish quant stage 3')
-            #if this_rank == 0: print(final_output.shape, tensor.shape)
-            #print(final_output)
+        #if this_rank == 0: print(global_input_tensor.shape, global_scales.shape, tensor.shape)
+        final_output = quantizer_module.dequantize(global_input_tensor, global_scales, global_scales.numel(),
+                                                    4, quantizer_module.Symmetric)
+        #print(f'{this_rank}: finish quant stage 3')
+        #if this_rank == 0: print(final_output.shape, tensor.shape)
+        #print(final_output)
 
-            output_lst[idx] = torch.zeros_like(tensor, dtype=final_output.dtype).view(-1)
-            dist.all_gather_into_tensor(output_lst[idx], final_output)
-            output_lst[idx] = output_lst[idx].reshape(tensor.shape)
-            """
-            global_output = torch.empty_like(global_input_tensor)
-            global_scale_output = torch.empty_like(global_scales)
-            all_to_all_single(global_output, global_input_tensor, group=None)
-            all_to_all_single(global_scale_output, global_scales, group=None)
-            final_output = quantizer_module.dequantize(global_output, global_scale_output, global_scale_output.numel(),
-                                                       8, quantizer_module.Symmetric)
-            print('finish quant stage 3')
-            assert final_output.numel(
-            ) % num_nodes == 0, f"final_output.numel()={final_output.numel()} is not divisible by num_nodes={num_nodes}"
-            """
-            #output_lst[idx] = final_output
+        output_lst[idx] = torch.zeros_like(tensor, dtype=final_output.dtype).view(-1)
+        dist.all_gather_into_tensor(output_lst[idx], final_output)
+        output_lst[idx] = output_lst[idx].reshape(old_shape)
+        """
+        global_output = torch.empty_like(global_input_tensor)
+        global_scale_output = torch.empty_like(global_scales)
+        all_to_all_single(global_output, global_input_tensor, group=None)
+        all_to_all_single(global_scale_output, global_scales, group=None)
+        final_output = quantizer_module.dequantize(global_output, global_scale_output, global_scale_output.numel(),
+                                                    8, quantizer_module.Symmetric)
+        print('finish quant stage 3')
+        assert final_output.numel(
+        ) % num_nodes == 0, f"final_output.numel()={final_output.numel()} is not divisible by num_nodes={num_nodes}"
+        """
+        #output_lst[idx] = final_output
     return output_lst
 
 

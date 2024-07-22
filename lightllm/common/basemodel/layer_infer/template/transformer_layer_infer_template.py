@@ -78,8 +78,8 @@ class TransformerLayerInferTpl(TransformerLayerInfer):
 
         from lightllm.common.basemodel.comm import all_to_all_quant_reduce
         if self.world_size_ > 1:
-            dist.all_reduce(o, op=dist.ReduceOp.SUM, async_op=False)
-            #o = all_to_all_quant_reduce([o], groups={})[0]
+            #dist.all_reduce(o, op=dist.ReduceOp.SUM, async_op=False)
+            o = all_to_all_quant_reduce([o], groups={})[0]
         input_embding.add_(o.view(-1, self.embed_dim_))
         return
 
@@ -91,8 +91,8 @@ class TransformerLayerInferTpl(TransformerLayerInfer):
 
         from lightllm.common.basemodel.comm import all_to_all_quant_reduce
         if self.world_size_ > 1:
-            dist.all_reduce(ffn_out, op=dist.ReduceOp.SUM, async_op=False)
-            #ffn_out = all_to_all_quant_reduce([ffn_out], groups={})[0]
+            #dist.all_reduce(ffn_out, op=dist.ReduceOp.SUM, async_op=False)
+            ffn_out = all_to_all_quant_reduce([ffn_out], groups={})[0]
         input_embdings.add_(ffn_out.view(-1, self.embed_dim_))
         return
 

@@ -14,6 +14,8 @@ from lightllm.common.infer_utils import init_req_to_token_indexes
 from lightllm.common.build_utils import repair_config
 from lightllm.common.basemodel.triton_kernel.copy_kv_index_to_req import copy_kv_index_to_req
 from lightllm.common.basemodel.triton_kernel.splitfuse_copy_kv_index_to_req import splitfuse_copy_kv_index_to_req
+from lightllm.common.basemodel.layer_infer.cache_tensor_manager import g_cache_manager
+from lightllm.common.basemodel.cuda_graph import CudaGraph
 
 torch.backends.cudnn.enabled = True
 
@@ -50,6 +52,9 @@ class TpPartBaseModel:
         assert not (self.is_token_healing and self.return_all_prompt_logics), "can not be true in same time"
         self.use_dynamic_prompt_cache = kvargs.get("use_dynamic_prompt_cache", False)
         self.data_type = kvargs.get("data_type", "float16")
+        self.graph_max_batch_size = kvargs.get("graph_max_batch_size", 16)
+        self.graph_max_len_in_batch = kvargs.get("graph_max_len_in_batch", 8192)
+        self.disable_cudagraph = kvargs.get("disable_cudagraph", False)
 
         self._init_datatype()
         self._init_config()
@@ -61,6 +66,7 @@ class TpPartBaseModel:
         self._init_infer_layer()
         self._init_some_value()
         self._init_custom()
+        self._init_cudagraph()
         return
 
     def _init_config(self):
@@ -154,6 +160,13 @@ class TpPartBaseModel:
             self.data_type = torch.float32
         else:
             raise ValueError(f"Unsupport datatype {self.data_type}!")
+
+    def _init_cudagraph(self):
+        self.graph = (
+            None if self.disable_cudagraph else CudaGraph(self.graph_max_batch_size, self.graph_max_len_in_batch)
+        )
+        if self.graph is not None:
+            self.graph.warmup(self)
 
     def _init_custom(self):
         pass
@@ -285,7 +298,9 @@ class TpPartBaseModel:
         infer_state.mem_manager = self.mem_manager
         infer_state.req_manager = self.req_manager
 
-        alloc_mem = self.mem_manager.alloc_contiguous(batch_size)
+        # 在使用 cuda graph 特性的时候，必须保证每次推理的流程一致
+        # 所以不再使用分配连续的mem带来的优化，保证推理流程的一致
+        alloc_mem = None if self.graph is not None else self.mem_manager.alloc_contiguous(batch_size)
         if alloc_mem is not None:
             infer_state.mem_is_contiguous = True
             infer_state.mem_index = alloc_mem[0]
@@ -304,7 +319,14 @@ class TpPartBaseModel:
             copy_kv_index_to_req(self.req_manager.req_to_token_indexs, b_req_idx, b_seq_len, infer_state.mem_index)
 
         infer_state.init_some_extra_state(self, input_ids)
-        predict_logics = self._token_forward(input_ids, infer_state)
+        if self.graph is not None and self.graph.can_run(batch_size, max_len_in_batch):
+            if self.graph.need_capture(batch_size):
+                infer_state.is_cuda_graph = True
+                predict_logics = self.graph.capture_decode(self._token_forward, input_ids, infer_state)
+            else:
+                predict_logics = self.graph.replay(input_ids, infer_state)
+        else:
+            predict_logics = self._token_forward(input_ids, infer_state)
         return predict_logics
 
     @torch.no_grad()
@@ -390,52 +412,37 @@ class TpPartBaseModel:
 
     @final
     def _context_forward(self, input_ids, infer_state: InferStateInfo):
+        g_cache_manager.cache_env_in()
         cuda_input_ids = input_ids
         input_embs = self.pre_infer.context_forward(cuda_input_ids, infer_state, self.pre_post_weight)
-
-        self.layers_infer[0].mark_cache_alloc_start()
-        input_embs = self.layers_infer[0].context_forward(input_embs, infer_state, self.trans_layers_weight[0])
-        self.layers_infer[0].mark_cache_alloc_end()
-
-        for i in range(1, self.layers_num):
+        for i in range(0, self.layers_num):
             input_embs = self.layers_infer[i].context_forward(input_embs, infer_state, self.trans_layers_weight[i])
-
-        # 释放所有管理的transformer使用的多层共享cache tensor, 最后一层调用一次即可
-        self.layers_infer[-1].release_all_caches()
-
         predict_logics = self.post_infer.token_forward(input_embs, infer_state, self.pre_post_weight)
+        g_cache_manager.cache_env_out()
         return predict_logics
 
     @final
     def _token_forward(self, input_ids, infer_state: InferStateInfo):
+        g_cache_manager.cache_env_in(
+            is_cuda_graph=infer_state.is_cuda_graph,
+            cur_batch_size=infer_state.batch_size,
+            cuda_graph_max_batch_size=self.graph_max_batch_size,
+        )
         cuda_input_ids = input_ids
         input_embs = self.pre_infer.token_forward(cuda_input_ids, infer_state, self.pre_post_weight)
-
-        self.layers_infer[0].mark_cache_alloc_start()
-        input_embs = self.layers_infer[0].token_forward(input_embs, infer_state, self.trans_layers_weight[0])
-        self.layers_infer[0].mark_cache_alloc_end()
-
-        for i in range(1, self.layers_num):
+        for i in range(0, self.layers_num):
             input_embs = self.layers_infer[i].token_forward(input_embs, infer_state, self.trans_layers_weight[i])
-
-        # 释放所有管理的transformer使用的多层共享cache tensor, 最后一层调用一次即可
-        self.layers_infer[-1].release_all_caches()
         predict_logics = self.post_infer.token_forward(input_embs, infer_state, self.pre_post_weight)
+        g_cache_manager.cache_env_out()
         return predict_logics
 
     @final
     def _splitfuse_forward(self, input_ids, infer_state: SplitFuseInferStateInfo):
+        g_cache_manager.cache_env_in()
         cuda_input_ids = input_ids
         input_embs = self.pre_infer.splitfuse_forward(cuda_input_ids, infer_state, self.pre_post_weight)
-
-        self.layers_infer[0].mark_cache_alloc_start()
-        input_embs = self.layers_infer[0].splitfuse_forward(input_embs, infer_state, self.trans_layers_weight[0])
-        self.layers_infer[0].mark_cache_alloc_end()
-
-        for i in range(1, self.layers_num):
+        for i in range(0, self.layers_num):
             input_embs = self.layers_infer[i].splitfuse_forward(input_embs, infer_state, self.trans_layers_weight[i])
-
-        # 释放所有管理的transformer使用的多层共享cache tensor, 最后一层调用一次即可
-        self.layers_infer[-1].release_all_caches()
         predict_logics = self.post_infer.splitfuse_forward(input_embs, infer_state, self.pre_post_weight)
+        g_cache_manager.cache_env_out()
         return predict_logics

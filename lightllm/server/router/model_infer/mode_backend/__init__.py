@@ -6,3 +6,4 @@ from .beamsearch.impl import BeamSearchBackend
 from .diverse_backend.impl import DiversehBackend
 from .continues_batch.impl_for_token_healing import TokenHealingBackend
 from .continues_batch.impl_for_simple_constraint_mode import SimpleConstraintBackend
+from .continues_batch.impl_for_lr1_constraint_mode import LR1GrammarConstraintBackend

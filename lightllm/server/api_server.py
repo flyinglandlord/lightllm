@@ -424,6 +424,11 @@ def make_argument_parser() -> argparse.ArgumentParser:
     parser.add_argument("--diverse_mode", action="store_true", help="diversity generation mode")
     parser.add_argument("--token_healing_mode", action="store_true", help="code model infer mode")
     parser.add_argument("--simple_constraint_mode", action="store_true", help="output constraint mode")
+    parser.add_argument(
+        "--lr1_grammar_constraint_mode",
+        action="store_true",
+        help="experimental function for LR(1) grammar constraint output",
+    )
 
     parser.add_argument(
         "--enable_multimodal", action="store_true", help="Whether or not to allow to load additional multimodal models."
@@ -505,7 +510,7 @@ def main():
     assert args.max_req_input_len < args.max_req_total_len
     assert args.max_req_total_len <= args.max_total_token_num
     assert not (args.beam_mode and args.use_dynamic_prompt_cache), "Beam mode incompatible with dynamic prompt cache"
-    
+
     # splitfuse_mode 和 cuda_graph 不能同时开启
     if args.splitfuse_mode:
         assert args.disable_cudagraph

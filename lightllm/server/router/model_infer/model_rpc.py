@@ -12,6 +12,7 @@ from lightllm.server.router.model_infer.mode_backend import (
     RewardModelBackend,
     TokenHealingBackend,
     SimpleConstraintBackend,
+    LR1GrammarConstraintBackend,
 )
 from lightllm.utils.log_utils import init_logger
 
@@ -33,6 +34,7 @@ class ModelRpcServer(rpyc.Service):
         is_token_healing = kvargs.get("is_token_healing", False)
         if kvargs.get("args", None) is not None:
             is_simple_constraint_mode = kvargs.get("args", None).simple_constraint_mode
+            is_lr1_grammar_constraint_mode = kvargs.get("args", None).lr1_grammar_constraint_mode
         else:
             is_simple_constraint_mode = False
         # use_dynamic_prompt_cache = kvargs.get("use_dynamic_prompt_cache", False)
@@ -51,6 +53,8 @@ class ModelRpcServer(rpyc.Service):
             self.backend = TokenHealingBackend()
         elif is_simple_constraint_mode:
             self.backend = SimpleConstraintBackend()
+        elif is_lr1_grammar_constraint_mode:
+            self.backend = LR1GrammarConstraintBackend()
         else:
             self.backend = ContinuesBatchBackend()
 

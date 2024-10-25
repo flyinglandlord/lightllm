@@ -1,0 +1,129 @@
+defaultdict(<class 'set'>, {nt(S): {t(a), t(c)}, nt(S'): {t(a), t(c)}, nt(A): {t(a), t(c)}})
+graph node: id 0 start #####################
+ItemLookAhead(nt(S') = [@, nt(S)] # la = frozenset({t()}))
+ItemLookAhead(nt(S) = [@, nt(A)] # la = frozenset({t()}))
+ItemLookAhead(nt(A) = [@, t(a), t(a), nt(A)] # la = frozenset({t()}))
+ItemLookAhead(nt(A) = [@, t(a)] # la = frozenset({t()}))
+ItemLookAhead(nt(A) = [@, t(c), t(a), nt(A)] # la = frozenset({t()}))
+graph node: id 0 end   #####################
+
+
+edge: nt(S) to 1
+edge: t(a) to 2
+edge: nt(A) to 3
+edge: t(c) to 4
+##########
+graph node: id 1 start #####################
+ItemLookAhead(nt(S') = [nt(S), @] # la = frozenset({t()}))
+graph node: id 1 end   #####################
+
+
+##########
+graph node: id 2 start #####################
+ItemLookAhead(nt(A) = [t(a), @, t(a), nt(A)] # la = frozenset({t()}))
+ItemLookAhead(nt(A) = [t(a), @] # la = frozenset({t()}))
+graph node: id 2 end   #####################
+
+
+edge: t(a) to 5
+##########
+graph node: id 3 start #####################
+ItemLookAhead(nt(S) = [nt(A), @] # la = frozenset({t()}))
+graph node: id 3 end   #####################
+
+
+##########
+graph node: id 4 start #####################
+ItemLookAhead(nt(A) = [t(c), @, t(a), nt(A)] # la = frozenset({t()}))
+graph node: id 4 end   #####################
+
+
+edge: t(a) to 6
+##########
+graph node: id 5 start #####################
+ItemLookAhead(nt(A) = [t(a), t(a), @, nt(A)] # la = frozenset({t()}))
+ItemLookAhead(nt(A) = [@, t(a), t(a), nt(A)] # la = frozenset({t()}))
+ItemLookAhead(nt(A) = [@, t(a)] # la = frozenset({t()}))
+ItemLookAhead(nt(A) = [@, t(c), t(a), nt(A)] # la = frozenset({t()}))
+graph node: id 5 end   #####################
+
+
+edge: t(a) to 2
+edge: nt(A) to 7
+edge: t(c) to 4
+##########
+graph node: id 6 start #####################
+ItemLookAhead(nt(A) = [t(c), t(a), @, nt(A)] # la = frozenset({t()}))
+ItemLookAhead(nt(A) = [@, t(a), t(a), nt(A)] # la = frozenset({t()}))
+ItemLookAhead(nt(A) = [@, t(a)] # la = frozenset({t()}))
+ItemLookAhead(nt(A) = [@, t(c), t(a), nt(A)] # la = frozenset({t()}))
+graph node: id 6 end   #####################
+
+
+edge: t(a) to 2
+edge: nt(A) to 8
+edge: t(c) to 4
+##########
+graph node: id 7 start #####################
+ItemLookAhead(nt(A) = [t(a), t(a), nt(A), @] # la = frozenset({t()}))
+graph node: id 7 end   #####################
+
+
+##########
+graph node: id 8 start #####################
+ItemLookAhead(nt(A) = [t(c), t(a), nt(A), @] # la = frozenset({t()}))
+graph node: id 8 end   #####################
+
+
+##########
+[2, 5, 4, 6, 2]
+[2, 5, 2]
+[4, 6, 4]
+[4, 6, 2, 5, 4]
+cur handle circle: [2, 5, 4, 6, 2]
+cur handle circle: [2, 5, 4, 6, 2] : is_back_loop: True
+find back loop
+find back loop
+cur handle circle: [2, 5, 2]
+cur handle circle: [2, 5, 2] : is_back_loop: True
+find back loop
+cur handle circle: [4, 6, 4]
+cur handle circle: [4, 6, 4] : is_back_loop: True
+find back loop
+cur handle circle: [4, 6, 2, 5, 4]
+cur handle circle: [4, 6, 2, 5, 4] : is_back_loop: True
+find back loop
+find back loop
+source id 6 ###################
+lookah t(a) input t(a) pop (6, 4, 5, 2)                         push (2,), dest id 2 
+lookah t(a) input t(a) pop (6, 4, 0)                         push (0, 4, 6, 2), dest id 2 
+lookah t(c) input t(c) pop (6, 4)                         push (4,), dest id 4 
+lookah nt(A) input nt(A) pop (6,)                         push (6, 8), dest id 8 
+##########################################
+source id 5 ###################
+lookah t(a) input t(a) pop (5, 2)                         push (2,), dest id 2 
+lookah t(c) input t(c) pop (5, 2, 6, 4)                         push (4,), dest id 4 
+lookah t(c) input t(c) pop (5, 2, 0)                         push (0, 2, 5, 4), dest id 4 
+lookah nt(A) input nt(A) pop (5,)                         push (5, 7), dest id 7 
+##########################################
+source id 0 ###################
+lookah nt(S) input nt(S) pop (0,)                         push (0, 1), dest id 1 
+lookah t(a) input t(a) pop (0,)                         push (0, 2), dest id 2 
+lookah nt(A) input nt(A) pop (0,)                         push (0, 3), dest id 3 
+lookah t(c) input t(c) pop (0,)                         push (0, 4), dest id 4 
+##########################################
+source id 2 ###################
+lookah t(a) input t(a) pop (2,)                         push (2, 5), dest id 5 
+##########################################
+source id 4 ###################
+lookah t(a) input t(a) pop (4,)                         push (4, 6), dest id 6 
+##########################################
+
+caa accepted
+aaa accepted
+aacaa accepted
+aacacaa accepted
+####################
+ca not accepted
+cca not accepted
+defaultdict(<class 'dpda.DPDAEdgeMap'>, {0: DPDAEdgeMap(lookah_pop_to_edge=defaultdict(<class 'dict'>, {}), to_dest_edges=defaultdict(<class 'list'>, {})), 4: DPDAEdgeMap(lookah_pop_to_edge=defaultdict(<class 'dict'>, {}), to_dest_edges=defaultdict(<class 'list'>, {})), 6: DPDAEdgeMap(lookah_pop_to_edge=defaultdict(<class 'dict'>, {}), to_dest_edges=defaultdict(<class 'list'>, {})), 2: DPDAEdgeMap(lookah_pop_to_edge=defaultdict(<class 'dict'>, {}), to_dest_edges=defaultdict(<class 'list'>, {})), 5: DPDAEdgeMap(lookah_pop_to_edge=defaultdict(<class 'dict'>, {}), to_dest_edges=defaultdict(<class 'list'>, {}))})

@@ -32,6 +32,7 @@ class SamplingParams:
         # Whether to count input tokens for presence_penalty, frequency_penalty and repetition_penalty
         input_penalty: bool = DEFAULT_INPUT_PENALTY,
         regular_constraint: Optional[str] = None,  # Regular expressions constrain the output.
+        lr1_grammar: Optional[str] = None,  # LR(1) grammar constrain the output.
     ) -> None:
         self.best_of = best_of
         self.n = n
@@ -51,6 +52,7 @@ class SamplingParams:
         self.add_spaces_between_special_tokens = add_spaces_between_special_tokens
         self.print_eos_token = print_eos_token
         self.regular_constraint = regular_constraint
+        self.lr1_grammar = lr1_grammar
         if self.do_sample is False:
             self.temperature = 1.0
             self.top_p = 1.0
@@ -187,4 +189,5 @@ class SamplingParams:
         ret["best_of"] = self.best_of
         ret["input_penalty"] = self.input_penalty
         ret["regular_constraint"] = self.regular_constraint
+        ret["lr1_grammar"] = self.lr1_grammar
         return ret

@@ -14,6 +14,13 @@ from lightllm.server.io_struct import ReqRunStatus, FinishStatus
 from lightllm.server.router.dynamic_prompt.radix_cache import RadixCache
 from lightllm.utils.log_utils import init_logger
 from lightllm.server.req_id_generator import convert_sub_id_to_group_id
+from lightllm.server.router.model_infer.mode_backend.continues_batch.format_out.grammar.example_grammar import (
+    num_grammar,
+    char_grammar,
+    string_grammar,
+    json_grammar,
+    expr_grammar,
+)
 
 logger = init_logger(__name__)
 requests_mapping = {}
@@ -39,6 +46,7 @@ class InferSamplingParams:
         stop_sequences: List[List[int]] = [],
         input_penalty: bool = False,
         regular_constraint: Optional[str] = None,
+        lr1_grammar: Optional[str] = None,
     ) -> None:
         self.best_of = best_of
         self.do_sample = do_sample
@@ -59,7 +67,24 @@ class InferSamplingParams:
         # output constraint states
         self.regular_constraint = regular_constraint
         self.regex_guide = None
+        # lr1 grammar constraint states
         self.fsm_current_state: int = 0
+        if lr1_grammar == "expr":
+            self.lr1_grammar = expr_grammar
+            self.lr1_grammar_start_symbol = "EXPR"
+        elif lr1_grammar == "json":
+            self.lr1_grammar = json_grammar
+            self.lr1_grammar_start_symbol = "JSON"
+        elif lr1_grammar is None:
+            self.lr1_grammar = None
+        else:
+            # TODO: add a grammar parser for custom grammar
+            assert False, "Currently only support expr and json grammar"
+        self.lr1_stack = None
+        self.lr1_current_node_id = None
+        self.lr1_graph = None
+        self.dpda = None
+        self.graph = None
         return
 
 

@@ -3,6 +3,8 @@ import copy
 from dataclasses import dataclass, field
 from collections import defaultdict, deque
 from typing import Any, Union, Dict, List, Tuple, Set, FrozenSet
+
+import torch
 from .core import Item, T, NT, ItemLookAhead, ItemSet, Graph, Gen
 
 
@@ -606,6 +608,7 @@ class DPDA:
                 raise Exception("not accept")
 
             pop_edge = []
+            print(current_node_id, t, input_pop_edge1, input_pop_edge2)
             if t in input_pop_edge1:
                 pop_edge.extend([(pop, edge) for pop, edge in input_pop_edge1[t].items()])
             elif t in input_pop_edge2:
@@ -642,6 +645,98 @@ class DPDA:
                 return False
 
         return True
+
+    def dump_to_tensor(self):
+        # 转移边对应的符号转换成数字
+        symbol_to_id = {}
+        # 转移边最长的push和pop序列长度，便于确定tensor的大小
+        max_push_len = 0
+        max_pop_len = 0
+        # 边的个数，确定push_table和pop_table的大小
+        edge_num = 0
+        max_edge_num_for_same_t = 0
+        for node in self.lr_graph.origin_graph.graph_nodes:
+            current_node_id = node.node_id
+            input_pop_edge1 = self.one_step_node_id_to_dpda_edges[current_node_id].lookah_pop_to_edge
+            input_pop_edge2 = self.direct_jump_node_id_to_dpda_edges[current_node_id].lookah_pop_to_edge
+            edge_num_for_same_t = {}
+            for t in input_pop_edge1.keys():
+                if isinstance(t, NT):
+                    continue
+                if t.value not in symbol_to_id:
+                    symbol_to_id[t.value] = len(symbol_to_id)
+                edge_num_for_same_t[symbol_to_id[t.value]] = len(input_pop_edge1[t])
+                for pop, edge in input_pop_edge1[t].items():
+                    edge_num += 1
+                    max_pop_len = max(max_pop_len, len(pop))
+                    max_push_len = max(max_push_len, len(edge.push))
+            for t in input_pop_edge2.keys():
+                if isinstance(t, NT):
+                    continue
+                if t.value not in symbol_to_id:
+                    symbol_to_id[t.value] = len(symbol_to_id)
+                if symbol_to_id[t.value] not in edge_num_for_same_t:
+                    edge_num_for_same_t[symbol_to_id[t.value]] = len(input_pop_edge2[t])
+                else:
+                    edge_num_for_same_t[symbol_to_id[t.value]] += len(input_pop_edge2[t])
+                for pop, edge in input_pop_edge2[t].items():
+                    edge_num += 1
+                    max_pop_len = max(max_pop_len, len(pop))
+                    max_push_len = max(max_push_len, len(edge.push))
+            if len(edge_num_for_same_t) > 0:
+                max_edge_num_for_same_t = max(max_edge_num_for_same_t, max(edge_num_for_same_t.values()))
+            else:
+                max_edge_num_for_same_t = max_edge_num_for_same_t
+        # 构造转移表 node_num * symbol_num * edge_num_in_
+        shift_table = torch.zeros(
+            (len(self.lr_graph.origin_graph.graph_nodes), len(symbol_to_id), max_edge_num_for_same_t),
+            dtype=torch.int32,
+            device="cuda",
+        )
+        torch.fill_(shift_table, -1)
+        edge_num_table = torch.zeros(
+            (len(self.lr_graph.origin_graph.graph_nodes), len(symbol_to_id)), dtype=torch.int32, device="cuda"
+        )
+        # 构造push和pop表 edge_num * max_len
+        push_table = torch.zeros((edge_num, max_push_len), dtype=torch.int32, device="cuda")
+        pop_table = torch.zeros((edge_num, max_pop_len), dtype=torch.int32, device="cuda")
+        torch.fill_(push_table, -1)
+        torch.fill_(pop_table, -1)
+        # 构造dest表 edge_num
+        dest_table = torch.zeros((edge_num,), dtype=torch.int32, device="cuda")
+        # 填充转移表内容
+        edge_id = 0
+        for node in self.lr_graph.origin_graph.graph_nodes:
+            current_node_id = node.node_id
+            input_pop_edge1 = self.one_step_node_id_to_dpda_edges[current_node_id].lookah_pop_to_edge
+            input_pop_edge2 = self.direct_jump_node_id_to_dpda_edges[current_node_id].lookah_pop_to_edge
+            for t in input_pop_edge1.keys():
+                if isinstance(t, NT):
+                    continue
+                for pop, edge in input_pop_edge1[t].items():
+                    cur_index = edge_num_table[current_node_id, symbol_to_id[t.value]].int()
+                    shift_table[current_node_id, symbol_to_id[t.value], cur_index] = edge_id
+                    edge_num_table[current_node_id, symbol_to_id[t.value]] += 1
+                    for i, p in enumerate(pop):
+                        pop_table[edge_id, i] = p
+                    for i, p in enumerate(edge.push):
+                        push_table[edge_id, i] = p
+                    dest_table[edge_id] = edge.dest_node_id
+                    edge_id += 1
+            for t in input_pop_edge2.keys():
+                if isinstance(t, NT):
+                    continue
+                for pop, edge in input_pop_edge2[t].items():
+                    cur_index = edge_num_table[current_node_id, symbol_to_id[t.value]]
+                    shift_table[current_node_id, symbol_to_id[t.value], cur_index] = edge_id
+                    edge_num_table[current_node_id, symbol_to_id[t.value]] += 1
+                    for i, p in enumerate(pop):
+                        pop_table[edge_id, i] = p
+                    for i, p in enumerate(edge.push):
+                        push_table[edge_id, i] = p
+                    dest_table[edge_id] = edge.dest_node_id
+                    edge_id += 1
+        return shift_table, edge_num_table, push_table, pop_table, dest_table, symbol_to_id
 
 
 if __name__ == "__main__":

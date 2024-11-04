@@ -2,9 +2,9 @@ from .core import NT, T
 
 numbers = {i: T(str(i)) for i in range(10)}
 alphabet = {x: T(x) for x in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"}
-symbols = {x: T(x) for x in "~`!@#$%^&*()_+-=[]{}|;:,.<>/?'"}
+symbols = {x: T(x) for x in "~`!@#$%^&*()_+-=[]{}|;:,.<>/?'ĊĠ"}
 space = T(" ")
-backstash = T("\\")
+backstash = T(chr(92))
 double_quote = T('"')
 
 num_grammar = [

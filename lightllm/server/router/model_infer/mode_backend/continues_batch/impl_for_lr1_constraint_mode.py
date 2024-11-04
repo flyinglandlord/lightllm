@@ -57,15 +57,16 @@ class LR1GrammarConstraintBackend(ContinuesBatchBackend):
             sample_params.dest_table,
             symbol_to_id,
         ) = sample_params.dpda.dump_to_tensor()
+        sample_params.symbol_to_id = symbol_to_id
         print(f"preprocess dpda cost: {time.time() - start_time}")
 
         start_time = time.time()
-        check_str = list(self.tokenizer.tokenizer.get_vocab().keys())
-        other_token_id = symbol_to_id["a"]
+        sample_params.check_str = list(self.tokenizer.tokenizer.get_vocab().keys())
+        other_token_id = len(symbol_to_id)
+        print(symbol_to_id)
         _input_sequences = []
         _sequence_len = []
-        # TODO: use a kernel to efficiently convert the string to id
-        for s in check_str:
+        for s in sample_params.check_str:
             _input_sequences.append([symbol_to_id[c] if c in symbol_to_id else other_token_id for c in s])
             _sequence_len.append(len(s))
         sample_params.sequence_len = torch.tensor(_sequence_len, dtype=torch.int32, device="cuda")
@@ -89,13 +90,12 @@ class LR1GrammarConstraintBackend(ContinuesBatchBackend):
 
         logics = self.model.forward(**kwargs)
         print(logics.shape)
-        mask = torch.zeros_like(logics, dtype=torch.bool)
+        mask = torch.ones_like(logics, dtype=torch.bool)
         for i, run_obj in enumerate(run_reqs):
             sample_params = run_obj.sampling_param
             if sample_params.lr1_grammar is not None:
                 run_obj.sample_params = self.preprocess_dpda(sample_params)
-                _mask = self._mask_req_out_token(i, run_obj, mask, prefill=True)
-                mask[i, : _mask.shape[0]] = _mask
+                self._mask_req_out_token(i, run_obj, mask, prefill=True)
 
         logics[mask] = -1000000.0
 
@@ -126,10 +126,9 @@ class LR1GrammarConstraintBackend(ContinuesBatchBackend):
 
         all_has_no_constraint = all([e.sampling_param.lr1_grammar is None for e in run_reqs])
         if not all_has_no_constraint:
-            mask = torch.zeros_like(logits, dtype=torch.bool)
+            mask = torch.ones_like(logits, dtype=torch.bool)
             for i, run_obj in enumerate(run_reqs):
-                _mask = self._mask_req_out_token(i, run_obj, mask)
-                mask[i, : _mask.shape[0]] = _mask
+                self._mask_req_out_token(i, run_obj, mask)
             logits[mask] = -1000000.0
 
         next_token_ids, next_token_probs = sample(logits, run_reqs, self.eos_id)
@@ -152,6 +151,11 @@ class LR1GrammarConstraintBackend(ContinuesBatchBackend):
     def _handle_req_ans(self, req_obj: InferReq, next_token_id, next_token_logprob, output_dict):
         next_token_id = int(next_token_id)
         next_token = self.tokenizer.tokenizer.convert_ids_to_tokens([next_token_id])[0]
+        # next_token_list = list(next_token)
+        # for i in range(len(next_token_list)):
+        #     if next_token_list[i] not in req_obj.sampling_param.symbol_to_id:
+        #         next_token_list[i] = "a"
+        # next_token = "".join(next_token_list)
         if req_obj.sampling_param.lr1_grammar is not None:
             (
                 ok,
@@ -164,6 +168,9 @@ class LR1GrammarConstraintBackend(ContinuesBatchBackend):
             )
             if not ok:
                 req_obj.finish_status = FinishStatus.FINISHED_STOP
+
+        if next_token_id in self.eos_token_ids:
+            req_obj.finish_status = FinishStatus.FINISHED_STOP
 
         metadata = {
             "id": next_token_id,
@@ -180,7 +187,6 @@ class LR1GrammarConstraintBackend(ContinuesBatchBackend):
         return
 
     def _mask_req_out_token(self, i, run_obj: InferReq, mask, prefill=False):
-        # TODO: now it is a low-efficient implementation
         sample_params = run_obj.sampling_param
         if sample_params.lr1_grammar is not None:
             vocab_size = sample_params.input_sequences.shape[0]
@@ -200,5 +206,9 @@ class LR1GrammarConstraintBackend(ContinuesBatchBackend):
                 current_state,
                 50,
             )
-            print(current_state.shape)
-            return current_state == -1
+            # if torch.sum(current_state != -1) <= 500:
+            #     for j in range(len(current_state)):
+            #         if current_state[j] != -1:
+            #             print(f"accepted: {sample_params.check_str[j]}")
+            mask[i][:vocab_size] = current_state == -1
+            mask[i][self.eos_token_ids] = False

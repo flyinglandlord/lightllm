@@ -1,5 +1,6 @@
 import os
 import shutil
+import time
 import torch
 
 from .impl import ContinuesBatchBackend
@@ -20,6 +21,7 @@ from lightllm.server.router.model_infer.mode_backend.continues_batch.format_out.
     T,
 )
 from lightllm.server.router.model_infer.mode_backend.continues_batch.format_out.grammar.dpda import LRGraph, DPDA
+from lightllm_constraint_decode_kernel import check_dpda
 
 logger = init_logger(__name__)
 
@@ -40,6 +42,44 @@ class LR1GrammarConstraintBackend(ContinuesBatchBackend):
         self.eos_token_ids.extend(self.args.eos_id)
         pass
 
+    @calculate_time(show=True, min_cost_ms=300)
+    def preprocess_dpda(self, sample_params):
+        start_time = time.time()
+        graph = compute_graph(sample_params.lr1_grammar, start_symbol=sample_params.lr1_grammar_start_symbol)
+        graph.check_lr1()
+        lr1_graph = LRGraph(graph)
+        sample_params.dpda = DPDA(lr_graph=lr1_graph)
+        (
+            sample_params.shift_table,
+            sample_params.edge_num_table,
+            sample_params.push_table,
+            sample_params.pop_table,
+            sample_params.dest_table,
+            symbol_to_id,
+        ) = sample_params.dpda.dump_to_tensor()
+        print(f"preprocess dpda cost: {time.time() - start_time}")
+
+        start_time = time.time()
+        check_str = list(self.tokenizer.tokenizer.get_vocab().keys())
+        other_token_id = symbol_to_id["a"]
+        _input_sequences = []
+        _sequence_len = []
+        # TODO: use a kernel to efficiently convert the string to id
+        for s in check_str:
+            _input_sequences.append([symbol_to_id[c] if c in symbol_to_id else other_token_id for c in s])
+            _sequence_len.append(len(s))
+        sample_params.sequence_len = torch.tensor(_sequence_len, dtype=torch.int32, device="cuda")
+        sample_params.input_sequences = torch.empty(
+            (len(_input_sequences), torch.max(sample_params.sequence_len)), dtype=torch.int32, device="cuda"
+        )
+        for i, s in enumerate(_input_sequences):
+            sample_params.input_sequences[i, : len(s)] = torch.tensor(s, dtype=torch.int32, device="cuda")
+        print(f"preprocess vocabulary cost: {time.time() - start_time}")
+
+        sample_params.lr1_stack = [0]
+        sample_params.lr1_current_node_id = 0
+        return sample_params
+
     @calculate_time(show=False, min_cost_ms=300)
     def prefill_batch(self, batch_id):
         output_dict = {}
@@ -48,21 +88,14 @@ class LR1GrammarConstraintBackend(ContinuesBatchBackend):
         run_reqs: List[InferReq] = run_reqs
 
         logics = self.model.forward(**kwargs)
-        print(f"*********** LR(1) Grammar: {run_reqs[0].sampling_param.lr1_grammar} ***********")
-
+        print(logics.shape)
         mask = torch.zeros_like(logics, dtype=torch.bool)
         for i, run_obj in enumerate(run_reqs):
             sample_params = run_obj.sampling_param
             if sample_params.lr1_grammar is not None:
-                sample_params.graph = compute_graph(
-                    sample_params.lr1_grammar, start_symbol=sample_params.lr1_grammar_start_symbol
-                )
-                sample_params.graph.check_lr1()
-                sample_params.lr1_graph = LRGraph(sample_params.graph)
-                sample_params.dpda = DPDA(lr_graph=sample_params.lr1_graph)
-                sample_params.lr1_stack = [0]
-                sample_params.lr1_current_node_id = 0
-                self._mask_req_out_token(i, run_obj, mask, prefill=True)
+                run_obj.sample_params = self.preprocess_dpda(sample_params)
+                _mask = self._mask_req_out_token(i, run_obj, mask, prefill=True)
+                mask[i, : _mask.shape[0]] = _mask
 
         logics[mask] = -1000000.0
 
@@ -95,7 +128,8 @@ class LR1GrammarConstraintBackend(ContinuesBatchBackend):
         if not all_has_no_constraint:
             mask = torch.zeros_like(logits, dtype=torch.bool)
             for i, run_obj in enumerate(run_reqs):
-                self._mask_req_out_token(i, run_obj, mask)
+                _mask = self._mask_req_out_token(i, run_obj, mask)
+                mask[i, : _mask.shape[0]] = _mask
             logits[mask] = -1000000.0
 
         next_token_ids, next_token_probs = sample(logits, run_reqs, self.eos_id)
@@ -118,7 +152,7 @@ class LR1GrammarConstraintBackend(ContinuesBatchBackend):
     def _handle_req_ans(self, req_obj: InferReq, next_token_id, next_token_logprob, output_dict):
         next_token_id = int(next_token_id)
         next_token = self.tokenizer.tokenizer.convert_ids_to_tokens([next_token_id])[0]
-        if req_obj.sampling_param.dpda is not None:
+        if req_obj.sampling_param.lr1_grammar is not None:
             (
                 ok,
                 req_obj.sampling_param.lr1_stack,
@@ -148,25 +182,23 @@ class LR1GrammarConstraintBackend(ContinuesBatchBackend):
     def _mask_req_out_token(self, i, run_obj: InferReq, mask, prefill=False):
         # TODO: now it is a low-efficient implementation
         sample_params = run_obj.sampling_param
-        if sample_params.dpda is not None:
-            # try all token in the vocab
-            # later we will use parallel implementation
-            for token, token_id in self.tokenizer.vocabulary.items():
-                ok = False
-                if token_id in self.eos_token_ids:
-                    # print(f"eos_token: {token}, token_id: {token_id}")
-                    ok = True
-                else:
-                    ok, next_stack, next_state = sample_params.dpda.try_shift(
-                        input_str=token,
-                        current_stack=sample_params.lr1_stack,
-                        current_node_id=sample_params.lr1_current_node_id,
-                    )
-                if not ok:
-                    mask[i, token_id] = True
-                else:
-                    pass
-                    # print all ok token
-                    # print(f"token: {token}, token_id: {token_id}, ok: {ok}")
-        else:
-            mask[i, :] = False
+        if sample_params.lr1_grammar is not None:
+            vocab_size = sample_params.input_sequences.shape[0]
+            current_state = torch.tensor(
+                [sample_params.lr1_current_node_id] * vocab_size, dtype=torch.int32, device="cuda"
+            )
+            current_stack = torch.tensor(sample_params.lr1_stack, dtype=torch.int32, device="cuda")
+            check_dpda(
+                sample_params.input_sequences,
+                sample_params.sequence_len,
+                sample_params.shift_table,
+                sample_params.edge_num_table,
+                sample_params.push_table,
+                sample_params.pop_table,
+                sample_params.dest_table,
+                current_stack,
+                current_state,
+                50,
+            )
+            print(current_state.shape)
+            return current_state == -1

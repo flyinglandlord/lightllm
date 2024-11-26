@@ -5,7 +5,9 @@ from collections import defaultdict, deque
 from typing import Any, Union, Dict, List, Tuple, Set, FrozenSet
 
 import torch
+from tqdm import tqdm
 from .core import Item, T, NT, ItemLookAhead, ItemSet, Graph, Gen
+from lightllm_grammar_kernel import dfs_find_circle
 
 
 @dataclass
@@ -132,11 +134,49 @@ class DPDA:
 
         # 找到 LR(1) 自动机有向图中可以形成环所有内部环。
         circles = []
+
+        # Using networkx to find simple circle
+        # then traverse the circle to generate valid circles
+        # import networkx as nx
+        # G = nx.DiGraph()
+        # have_in_node = set()
+        # for graph_node in self.lr_graph.origin_graph.graph_nodes:
+        #     G.add_node(graph_node.node_id)
+        # for graph_node in self.lr_graph.origin_graph.graph_nodes:
+        #     for edge in self.lr_graph.source_id_to_edge[graph_node.node_id].values():
+        #         G.add_edge(edge.source_id, edge.dest_id)
+        #         have_in_node.add(edge.dest_id)
+        # for simple_cycles in nx.simple_cycles(G):
+        #     for i in range(len(simple_cycles)):
+        #         node = simple_cycles[i]
+        #         if isinstance(self.lr_graph.node_id_to_itemset[node].into_t_or_nt, T) and \
+        #             node in have_in_node:
+        #             circles.append(simple_cycles[i:] + simple_cycles[:i] + [simple_cycles[i]])
+        # circles = self.remove_same_circle(circles)
+        # networkx_version = len(circles)
+
+        # Using C++ version code
+        # G = []
+        # for i in range(len(self.lr_graph.origin_graph.graph_nodes)):
+        #     G.append([])
+        # for graph_node in self.lr_graph.origin_graph.graph_nodes:
+        #     for edge in self.lr_graph.source_id_to_edge[graph_node.node_id].values():
+        #         G[edge.source_id].append(edge.dest_id)
+        #         edge_num += 1
+        # circles = dfs_find_circle(G)
+        # print(circles)
+
+        # Using Python version code (100% Correct)
         visit_stack = []
         visit_state = {}
+        circles = []
         self.dfs_to_find_circle(0, visit_stack, visit_state, circles)
 
         circles = self.remove_same_circle(circles)
+        # python_version = len(circles)
+        # assert networkx_version >= python_version, \
+        #       f"networkx_version: {networkx_version}, python_version: {python_version}"
+
         # 处理找到的circle, 并做一些loop edge标记边, 和 添加一些 one step dpda_edge
         self.handle_circles(circles)
 
@@ -191,6 +231,8 @@ class DPDA:
             assert none_jump_edge.input_t is None
             assert none_jump_edge.lookah_input_t == input_t
 
+        print(f"none_jump_edge {none_jump_edge}")
+
         # 处理 none jump 和已有跳转历史边的融合情况
         for none_jump_edge in self._get_none_jump(cur_node_id, input_t):
             if none_jump_edge.dest_node_id in visit_set_state:  # 形成环了, 不处理了
@@ -215,6 +257,7 @@ class DPDA:
                     ok_edge = self.merge_dpda_edge(merged_tmp_edge, one_step_jump_edge)
                     ok_edge.lookah_input_t = input_t
                     ok_edge.input_t = input_t
+                    print(f"ok_edge {ok_edge}")
                     self.add_direct_jump_dpadge(ok_edge)
         return
 
@@ -371,7 +414,7 @@ class DPDA:
             # assert value == 1, f"error {key}"
 
         # 将找到的路径，进行添加。
-        for circle in circles:
+        for circle in tqdm(circles):
             is_back_loop = self.judge_circle_is_back_loop(circle)
             # print(f"cur handle circle: {circle} : is_back_loop: {is_back_loop}")
             if not is_back_loop:
@@ -419,6 +462,7 @@ class DPDA:
             dest_graph_node = self.lr_graph.node_id_to_itemset[circle[i + 1]]
             edge = self.lr_graph.s_id_e_id_to_edge[graph_node.node_id][dest_graph_node.node_id]
             node_and_edge_list.append(edge)
+        # print(node_and_edge_list)
 
         for index in range(len(node_and_edge_list)):
             cur_obj = node_and_edge_list[index]
@@ -442,7 +486,9 @@ class DPDA:
     ):
         if left_edge_count < 0:
             return False
-
+        # print(item_tuple)
+        # print(origin_item_tuple)
+        # print(cur_index)
         # cur_node: ItemSet = node_and_edge_list[cur_index]
         item1, item2 = item_tuple
         iter_index = cur_index
@@ -464,7 +510,7 @@ class DPDA:
         for (n_item1, n_item2) in next_node.back_pair_list:
             if item1.gen != n_item2.gen:  # 连续关系匹配
                 continue
-
+            # print((n_item1, n_item2))
             if (
                 next_node.node_id == origin_node_id and left_edge_count == 0 and origin_item_tuple[1].gen == item1.gen
             ):  # 成环结束条件
@@ -569,16 +615,21 @@ class DPDA:
             t = T(t)
             input_pop_edge1 = self.one_step_node_id_to_dpda_edges[current_node_id].lookah_pop_to_edge
             input_pop_edge2 = self.direct_jump_node_id_to_dpda_edges[current_node_id].lookah_pop_to_edge
-            if t not in input_pop_edge1 and t not in input_pop_edge2:
-                return False, stack, current_node_id
+
+            # if t not in input_pop_edge1 and t not in input_pop_edge2:
+            #     return False, stack, current_node_id
 
             pop_edge = []
-            if t in input_pop_edge1:
-                pop_edge.extend([(pop, edge) for pop, edge in input_pop_edge1[t].items()])
-            elif t in input_pop_edge2:
-                pop_edge.extend([(pop, edge) for pop, edge in input_pop_edge2[t].items()])
-            else:
-                return False, None, None
+            for terminals, edges in input_pop_edge1.items():
+                if isinstance(terminals, NT):
+                    continue
+                if t.value in terminals.value:
+                    pop_edge.extend([(pop, edge) for pop, edge in edges.items()])
+            for terminals, edges in input_pop_edge2.items():
+                if isinstance(terminals, NT):
+                    continue
+                if t.value in terminals.value:
+                    pop_edge.extend([(pop, edge) for pop, edge in edges.items()])
 
             find = False
             find_count = 0
@@ -604,22 +655,32 @@ class DPDA:
             input_pop_edge1 = self.one_step_node_id_to_dpda_edges[current_node_id].lookah_pop_to_edge
             input_pop_edge2 = self.direct_jump_node_id_to_dpda_edges[current_node_id].lookah_pop_to_edge
 
-            if t not in input_pop_edge1 and t not in input_pop_edge2:
-                raise Exception("not accept")
+            # if t not in input_pop_edge1 and t not in input_pop_edge2:
+            #     raise Exception("not accept")
 
             pop_edge = []
-            print(current_node_id, t, input_pop_edge1, input_pop_edge2)
-            if t in input_pop_edge1:
-                pop_edge.extend([(pop, edge) for pop, edge in input_pop_edge1[t].items()])
-            elif t in input_pop_edge2:
-                pop_edge.extend([(pop, edge) for pop, edge in input_pop_edge2[t].items()])
-            else:
-                assert False, "can not to here"
-
+            # print(current_node_id, t)
+            # if t in input_pop_edge1:
+            for terminals, edges in input_pop_edge1.items():
+                if isinstance(terminals, NT):
+                    continue
+                if t.value in terminals.value:
+                    pop_edge.extend([(pop, edge) for pop, edge in edges.items()])
+            # elif t in input_pop_edge2:
+            for terminals, edges in input_pop_edge2.items():
+                if isinstance(terminals, NT):
+                    continue
+                if t.value in terminals.value:
+                    pop_edge.extend([(pop, edge) for pop, edge in edges.items()])
+            # else:
+            #    assert False, "can not to here"
+            # print(pop_edge)
+            # print(stack)
             find = False
             find_count = 0
             for pop, edge in pop_edge:
                 if self._stack_match(stack, pop):
+                    # print(edge)
                     del stack[-len(pop) :]
                     stack.extend(edge.push)
                     current_node_id = edge.dest_node_id
@@ -628,7 +689,7 @@ class DPDA:
                     break
             assert find_count == 1, f"find_count {find_count}"
             if not find:
-                # print(stack)
+                print(stack)
                 raise Exception("not accept")
 
         # if current_node_id not in self.lr_graph.can_finished_node_id_set:
@@ -663,24 +724,26 @@ class DPDA:
             for t in input_pop_edge1.keys():
                 if isinstance(t, NT):
                     continue
-                if t.value not in symbol_to_id:
-                    symbol_to_id[t.value] = len(symbol_to_id)
-                edge_num_for_same_t[symbol_to_id[t.value]] = len(input_pop_edge1[t])
+                for ch in t.value:
+                    if ch not in symbol_to_id:
+                        symbol_to_id[ch] = len(symbol_to_id)
+                    edge_num_for_same_t[symbol_to_id[ch]] = len(input_pop_edge1[t])
                 for pop, edge in input_pop_edge1[t].items():
-                    edge_num += 1
+                    edge_num += len(t.value)
                     max_pop_len = max(max_pop_len, len(pop))
                     max_push_len = max(max_push_len, len(edge.push))
             for t in input_pop_edge2.keys():
                 if isinstance(t, NT):
                     continue
-                if t.value not in symbol_to_id:
-                    symbol_to_id[t.value] = len(symbol_to_id)
-                if symbol_to_id[t.value] not in edge_num_for_same_t:
-                    edge_num_for_same_t[symbol_to_id[t.value]] = len(input_pop_edge2[t])
-                else:
-                    edge_num_for_same_t[symbol_to_id[t.value]] += len(input_pop_edge2[t])
+                for ch in t.value:
+                    if ch not in symbol_to_id:
+                        symbol_to_id[ch] = len(symbol_to_id)
+                    if symbol_to_id[ch] not in edge_num_for_same_t:
+                        edge_num_for_same_t[symbol_to_id[ch]] = len(input_pop_edge2[t])
+                    else:
+                        edge_num_for_same_t[symbol_to_id[ch]] += len(input_pop_edge2[t])
                 for pop, edge in input_pop_edge2[t].items():
-                    edge_num += 1
+                    edge_num += len(t.value)
                     max_pop_len = max(max_pop_len, len(pop))
                     max_push_len = max(max_push_len, len(edge.push))
             if len(edge_num_for_same_t) > 0:
@@ -714,28 +777,30 @@ class DPDA:
                 if isinstance(t, NT):
                     continue
                 for pop, edge in input_pop_edge1[t].items():
-                    cur_index = edge_num_table[current_node_id, symbol_to_id[t.value]].int()
-                    shift_table[current_node_id, symbol_to_id[t.value], cur_index] = edge_id
-                    edge_num_table[current_node_id, symbol_to_id[t.value]] += 1
-                    for i, p in enumerate(pop):
-                        pop_table[edge_id, i] = p
-                    for i, p in enumerate(edge.push):
-                        push_table[edge_id, i] = p
-                    dest_table[edge_id] = edge.dest_node_id
-                    edge_id += 1
+                    for ch in t.value:
+                        cur_index = edge_num_table[current_node_id, symbol_to_id[ch]].int()
+                        shift_table[current_node_id, symbol_to_id[ch], cur_index] = edge_id
+                        edge_num_table[current_node_id, symbol_to_id[ch]] += 1
+                        for i, p in enumerate(pop):
+                            pop_table[edge_id, i] = p
+                        for i, p in enumerate(edge.push):
+                            push_table[edge_id, i] = p
+                        dest_table[edge_id] = edge.dest_node_id
+                        edge_id += 1
             for t in input_pop_edge2.keys():
                 if isinstance(t, NT):
                     continue
                 for pop, edge in input_pop_edge2[t].items():
-                    cur_index = edge_num_table[current_node_id, symbol_to_id[t.value]]
-                    shift_table[current_node_id, symbol_to_id[t.value], cur_index] = edge_id
-                    edge_num_table[current_node_id, symbol_to_id[t.value]] += 1
-                    for i, p in enumerate(pop):
-                        pop_table[edge_id, i] = p
-                    for i, p in enumerate(edge.push):
-                        push_table[edge_id, i] = p
-                    dest_table[edge_id] = edge.dest_node_id
-                    edge_id += 1
+                    for ch in t.value:
+                        cur_index = edge_num_table[current_node_id, symbol_to_id[ch]]
+                        shift_table[current_node_id, symbol_to_id[ch], cur_index] = edge_id
+                        edge_num_table[current_node_id, symbol_to_id[ch]] += 1
+                        for i, p in enumerate(pop):
+                            pop_table[edge_id, i] = p
+                        for i, p in enumerate(edge.push):
+                            push_table[edge_id, i] = p
+                        dest_table[edge_id] = edge.dest_node_id
+                        edge_id += 1
         return shift_table, edge_num_table, push_table, pop_table, dest_table, symbol_to_id
 
 

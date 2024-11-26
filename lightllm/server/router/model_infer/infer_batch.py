@@ -9,6 +9,10 @@ from dataclasses import dataclass, field
 from typing import List, Dict, Tuple, Optional
 from lightllm.common.req_manager import ReqManager
 from lightllm.common.mem_manager import MemoryManager
+from lightllm.server.router.model_infer.mode_backend.continues_batch.format_out.grammar.grammar_parser import (
+    fix_grammar,
+    parse_ebnf,
+)
 from lightllm.utils.infer_utils import mark_start, mark_end
 from lightllm.server.io_struct import ReqRunStatus, FinishStatus
 from lightllm.server.router.dynamic_prompt.radix_cache import RadixCache
@@ -25,6 +29,32 @@ from lightllm.server.router.model_infer.mode_backend.continues_batch.format_out.
 logger = init_logger(__name__)
 requests_mapping = {}
 group_mapping = {}
+
+
+class DPDAStructure:
+    def __init__(self):
+        # Preprocessed Vocabulary List
+        self.input_sequences = None
+        self.sequence_len = None
+        self.check_str = None  # Now keep the original string for check, can be removed later
+
+        # DPDA inference states
+        self.lr1_stack = [0]
+        self.lr1_current_node_id = 0
+
+        # Python DPDA structure
+        self.lr1_graph = None
+        self.dpda = None
+        self.graph = None
+
+        # Torch DPDA structure
+        self.shift_table = None
+        self.edge_num_table = None
+        self.push_table = None
+        self.pop_table = None
+        self.dest_table = None
+        self.symbol_to_id = None
+        return
 
 
 class InferSamplingParams:
@@ -67,24 +97,32 @@ class InferSamplingParams:
         # output constraint states
         self.regular_constraint = regular_constraint
         self.regex_guide = None
-        # lr1 grammar constraint states
         self.fsm_current_state: int = 0
+
+        # lr1 grammar constraint states
+        self.lr1_grammar_name = lr1_grammar
         if lr1_grammar == "expr":
             self.lr1_grammar = expr_grammar
             self.lr1_grammar_start_symbol = "EXPR"
         elif lr1_grammar == "json":
             self.lr1_grammar = json_grammar
             self.lr1_grammar_start_symbol = "JSON"
+        elif isinstance(lr1_grammar, str):
+            try:
+                with open(lr1_grammar, "r") as f:
+                    input_text = f.read()
+                    parsed_grammar = parse_ebnf(input_text)
+                    grammar = parsed_grammar.get_grammar()
+                    self.lr1_grammar = fix_grammar(grammar)
+                    self.lr1_grammar_start_symbol = "root"
+            except:
+                assert False, f"grammar file {lr1_grammar} not exist"
         elif lr1_grammar is None:
             self.lr1_grammar = None
         else:
             # TODO: add a grammar parser for custom grammar
             assert False, "Currently only support expr and json grammar"
-        self.lr1_stack = None
-        self.lr1_current_node_id = None
-        self.lr1_graph = None
-        self.dpda = None
-        self.graph = None
+        self.dpda = DPDAStructure()
         return
 
 

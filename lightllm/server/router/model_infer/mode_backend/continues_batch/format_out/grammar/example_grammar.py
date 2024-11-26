@@ -147,3 +147,28 @@ json_grammar = (
     + string_grammar
     + num_grammar
 )
+
+"""
+value: dict
+         | list
+         | ESCAPED_STRING
+         | signed_number
+         | "t" "r" "u" "e" | "f" "a" "l" "s" "e" | "n" "u" "l" "l"
+list : "[" [value ("," value)*] "]"
+dict : "{" [pair ("," pair)*] "}"
+pair : ESCAPED_STRING ":" value
+
+digit: "0".."9"
+hexdigit: "a".."f"|"A".."F"|digit
+
+int: digit+
+signed_int: ["+"|"-"] int
+decimal: int "." int? | "." int
+
+_exp: ("e"|"E") signed_int
+float: int _exp | decimal _exp?
+signed_float: ["+"|"-"] float
+
+number: float | int
+signed_number: ["+"|"-"] number
+"""

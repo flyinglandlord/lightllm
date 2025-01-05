@@ -7,7 +7,7 @@ from typing import Any, Union, Dict, List, Tuple, Set, FrozenSet
 import torch
 from tqdm import tqdm
 from .core import Item, T, NT, ItemLookAhead, ItemSet, Graph, Gen
-from lightllm_grammar_kernel import dfs_find_circle
+# from lightllm_constraint_decode_kernel import dfs_find_circle
 
 
 @dataclass
@@ -231,7 +231,7 @@ class DPDA:
             assert none_jump_edge.input_t is None
             assert none_jump_edge.lookah_input_t == input_t
 
-        print(f"none_jump_edge {none_jump_edge}")
+        #print(f"none_jump_edge {none_jump_edge}")
 
         # 处理 none jump 和已有跳转历史边的融合情况
         for none_jump_edge in self._get_none_jump(cur_node_id, input_t):
@@ -257,7 +257,7 @@ class DPDA:
                     ok_edge = self.merge_dpda_edge(merged_tmp_edge, one_step_jump_edge)
                     ok_edge.lookah_input_t = input_t
                     ok_edge.input_t = input_t
-                    print(f"ok_edge {ok_edge}")
+                    #print(f"ok_edge {ok_edge}")
                     self.add_direct_jump_dpadge(ok_edge)
         return
 

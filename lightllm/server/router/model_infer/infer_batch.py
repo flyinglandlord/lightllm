@@ -38,10 +38,6 @@ class DPDAStructure:
         self.sequence_len = None
         self.check_str = None  # Now keep the original string for check, can be removed later
 
-        # DPDA inference states
-        self.lr1_stack = [0]
-        self.lr1_current_node_id = 0
-
         # Python DPDA structure
         self.lr1_graph = None
         self.dpda = None
@@ -94,6 +90,7 @@ class InferSamplingParams:
         if self.top_k == -1:
             self.top_k = vocab_size
         self.input_penalty = input_penalty
+        
         # output constraint states
         self.regular_constraint = regular_constraint
         self.regex_guide = None
@@ -123,6 +120,10 @@ class InferSamplingParams:
             # TODO: add a grammar parser for custom grammar
             assert False, "Currently only support expr and json grammar"
         self.dpda = DPDAStructure()
+
+        # DPDA inference states
+        self.lr1_stack = [0]
+        self.lr1_current_node_id = 0
         return
 
 
@@ -300,6 +301,9 @@ class InferBatch:
     req_manager: ReqManager
     radix_cache: RadixCache
 
+    batch_lr1_stack: torch.Tensor
+    batch_lr1_stack_size: torch.Tensor
+
     @classmethod
     @torch.no_grad()
     def init_batch(
@@ -317,6 +321,10 @@ class InferBatch:
         need_alloc_size = len([r for r in requests if r["request_id"] not in requests_mapping])
         nopad_b_req_idx = req_manager.alloc(need_alloc_size)
         nopad_b_req_idx = nopad_b_req_idx.cpu().numpy()
+
+        max_stack_size = 64
+        batch_lr_stack = torch.zeros((len(requests), max_stack_size), dtype=torch.int32, device=device)
+        batch_lr_stack_size = torch.ones(len(requests), dtype=torch.int32, device=device)
 
         index = 0
         for r in requests:
@@ -376,6 +384,8 @@ class InferBatch:
             request_ids=request_ids,
             req_manager=req_manager,
             radix_cache=radix_cache,
+            batch_lr1_stack=batch_lr_stack,
+            batch_lr1_stack_size=batch_lr_stack_size,
         )
 
     def _free_a_req_mem(self, free_token_index: List, req: InferReq, is_group_finished: bool):
@@ -462,7 +472,8 @@ class InferBatch:
         self.req_manager.free(free_req_index, free_token_index)
 
         return InferBatch(
-            batch_id=self.batch_id, request_ids=request_ids, req_manager=self.req_manager, radix_cache=self.radix_cache
+            batch_id=self.batch_id, request_ids=request_ids, req_manager=self.req_manager, radix_cache=self.radix_cache, 
+            batch_lr1_stack=self.batch_lr1_stack, batch_lr1_stack_size=self.batch_lr1_stack_size
         )
 
     @torch.no_grad()

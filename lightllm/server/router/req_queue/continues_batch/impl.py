@@ -81,7 +81,7 @@ class ContinuesBatchQueue(BaseQueue):
                     self.pause_req_dict.pop(req.request_id)
             else:
                 break
-        if len(can_run_list) != 0:
+        if len(can_run_list) != 0 and len(can_run_list) >= 8:
             new_batch = Batch(uuid.uuid4().hex, can_run_list)
             self.waiting_req_list = self.waiting_req_list[len(can_run_list) + aborted_count :]
             return new_batch

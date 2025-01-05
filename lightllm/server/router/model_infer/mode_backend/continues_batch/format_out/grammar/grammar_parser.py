@@ -371,7 +371,7 @@ def parse_ebnf(grammar_text: str) -> ParseState:
         while remaining_grammar_text:
             if last_grammar_repr:
                 last_parsed_rule_len = len(last_grammar_repr) - len(remaining_grammar_text)
-                logger.debug(f"last_parsed_rule: {last_grammar_repr[:last_parsed_rule_len]}")
+                # logger.debug(f"last_parsed_rule: {last_grammar_repr[:last_parsed_rule_len]}")
             last_grammar_repr = remaining_grammar_text
             remaining_grammar_text = parse_rule(state, remaining_grammar_text)
         state.grammar_encoding.append(END_OF_GRAMMAR_MARKER)
@@ -425,21 +425,22 @@ def break_rule_into_elements(rule_encoding: List[int]) -> List[List[int]]:
 def _print_annotated_grammar(file, grammar_encoding, symbol_id_names, index=0):
     rule = []
     rule_id = grammar_encoding[index]
-    print(f"<{index}>{symbol_id_names[rule_id]} ::=", end=" ", file=file)
+    #print(f"<{index}>{symbol_id_names[rule_id]} ::=", end=" ", file=file)
     pos = index + 1
     while grammar_encoding[pos]:
         if pos - 1 > index:
-            print("|", end=" ", file=file)
+            #print("|", end=" ", file=file)
+            pass
         pos += 1  # sequence size, not needed here
         ref_list = []
         while grammar_encoding[pos]:
             if grammar_encoding[pos] == REF_RULE_MARKER:
                 ref_rule_id = grammar_encoding[pos + 1]
-                print(
-                    f"<{pos}>{symbol_id_names[ref_rule_id]}",
-                    end=" ",
-                    file=file,
-                )
+                # print(
+                #     f"<{pos}>{symbol_id_names[ref_rule_id]}",
+                #     end=" ",
+                #     file=file,
+                # )
                 ref_list.append(NT(f"{symbol_id_names[ref_rule_id]}"))
                 pos += 2
             else:
@@ -449,22 +450,23 @@ def _print_annotated_grammar(file, grammar_encoding, symbol_id_names, index=0):
                 for i in range(0, num_chars, 2):
                     for j in range(grammar_encoding[pos + i], grammar_encoding[pos + i + 1] + 1):
                         all_string += chr(j)
-                    print("{}-".format(chr(grammar_encoding[pos + i])), end="", file=file)
+                    #print("{}-".format(chr(grammar_encoding[pos + i])), end="", file=file)
                     if i + 1 < num_chars:
-                        print(
-                            "{}".format(chr(grammar_encoding[pos + i + 1])),
-                            end="",
-                            file=file,
-                        )
+                        # print(
+                        #     "{}".format(chr(grammar_encoding[pos + i + 1])),
+                        #     end="",
+                        #     file=file,
+                        # )
+                        pass
                 ref_list.append(T(all_string))
-                print("]", end=" ", file=file)
+                #print("]", end=" ", file=file)
                 pos += num_chars
         if len(ref_list) > 0:
             rule.append((NT(f"{symbol_id_names[rule_id]}"), ref_list))
         else:
             rule.append((NT(f"{symbol_id_names[rule_id]}"), [T("")]))  # T("") is a placeholder for \epsilon
         pos += 1
-    print(file=file)
+    #print(file=file)
     return pos + 1, rule
 
 
@@ -472,7 +474,7 @@ def print_grammar(file, state):
     grammar = []
     pos = 0
     symbol_id_names = {v: k for k, v in state.symbol_table.items()}
-    print("Grammar Rules:", file=file)
+    #print("Grammar Rules:", file=file)
     while pos < len(state.grammar_encoding) and state.grammar_encoding[pos] != END_OF_GRAMMAR_MARKER:
         pos, rule = _print_annotated_grammar(file, state.grammar_encoding, symbol_id_names, pos)
         grammar.extend(rule)
@@ -510,10 +512,10 @@ def fix_grammar(grammar):
             lhs = rule[0]
             rhs = rule[1]
             if len(rhs) == 1 and isinstance(rhs[0], T) and rhs[0].value == "":
-                print(f"rule: {rule}")
+                #print(f"rule: {rule}")
                 fix = False
                 deleted_index.append(i)
-                print("deleted:")
+                #print("deleted:")
                 for j in range(len(grammar)):
                     # if lhs exists in the other rules, we need to add the new rules
                     if i != j and lhs in grammar[j][1]:
@@ -522,7 +524,7 @@ def fix_grammar(grammar):
                         if len(new_rhs) == 0:
                             new_rhs = [T("")]
                         grammar.append((grammar[j][0], new_rhs))
-                        print(grammar[j][0], new_rhs)
+                        #print(grammar[j][0], new_rhs)
                 break
         grammar = [grammar[i] for i in range(len(grammar)) if i not in deleted_index]
         if fix:

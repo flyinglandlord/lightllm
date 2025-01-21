@@ -328,6 +328,9 @@ class InferBatch:
     req_manager: ReqManager
     radix_cache: RadixCache
 
+    batch_lr1_stack: torch.Tensor
+    batch_lr1_stack_size: torch.Tensor
+
     @classmethod
     @torch.no_grad()
     def init_batch(
@@ -345,6 +348,10 @@ class InferBatch:
         need_alloc_size = len([r for r in requests if r["request_id"] not in requests_mapping])
         nopad_b_req_idx = req_manager.alloc(need_alloc_size)
         nopad_b_req_idx = nopad_b_req_idx.cpu().numpy()
+
+        max_stack_size = 64
+        batch_lr_stack = torch.zeros((len(requests), max_stack_size), dtype=torch.int32, device=device)
+        batch_lr_stack_size = torch.ones(len(requests), dtype=torch.int32, device=device)
 
         index = 0
         for r in requests:
@@ -404,6 +411,8 @@ class InferBatch:
             request_ids=request_ids,
             req_manager=req_manager,
             radix_cache=radix_cache,
+            batch_lr1_stack=batch_lr_stack,
+            batch_lr1_stack_size=batch_lr_stack_size,
         )
 
     def _free_a_req_mem(self, free_token_index: List, req: InferReq, is_group_finished: bool):
@@ -493,7 +502,12 @@ class InferBatch:
         self.req_manager.free(free_req_index, free_token_index)
 
         return InferBatch(
-            batch_id=self.batch_id, request_ids=request_ids, req_manager=self.req_manager, radix_cache=self.radix_cache
+            batch_id=self.batch_id,
+            request_ids=request_ids,
+            req_manager=self.req_manager,
+            radix_cache=self.radix_cache,
+            batch_lr1_stack=self.batch_lr1_stack,
+            batch_lr1_stack_size=self.batch_lr1_stack_size,
         )
 
     @torch.no_grad()

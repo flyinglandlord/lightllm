@@ -17,9 +17,43 @@ from lightllm.server.router.dynamic_prompt.radix_cache import RadixCache
 from lightllm.utils.log_utils import init_logger
 from lightllm.server.req_id_generator import convert_sub_id_to_group_id
 
+from lightllm.server.router.model_infer.mode_backend.continues_batch.format_out.grammar.example_grammar import (
+    num_grammar,
+    char_grammar,
+    string_grammar,
+    json_grammar,
+    expr_grammar,
+)
+from lightllm.server.router.model_infer.mode_backend.continues_batch.format_out.grammar.grammar_parser import (
+    fix_grammar,
+    parse_ebnf,
+)
+
 logger = init_logger(__name__)
 requests_mapping = {}
 group_mapping = {}
+
+
+class DPDAStructure:
+    def __init__(self):
+        # Preprocessed Vocabulary List
+        self.input_sequences = None
+        self.sequence_len = None
+        self.check_str = None  # Now keep the original string for check, can be removed later
+
+        # Python DPDA structure
+        self.lr1_graph = None
+        self.dpda = None
+        self.graph = None
+
+        # Torch DPDA structure
+        self.shift_table = None
+        self.edge_num_table = None
+        self.push_table = None
+        self.pop_table = None
+        self.dest_table = None
+        self.symbol_to_id = None
+        return
 
 
 class InferSamplingParams:
@@ -76,6 +110,29 @@ class InferSamplingParams:
         # Xgrammar constraint states
         self.xgrammar_compiled_grammar = None
         self.xgrammar_matcher = None
+
+        # Lightllm constraint states
+        if guided_grammar == "expr":
+            self.lr1_grammar = expr_grammar
+            self.lr1_grammar_start_symbol = "EXPR"
+        elif guided_grammar == "json":
+            self.lr1_grammar = json_grammar
+            self.lr1_grammar_start_symbol = "JSON"
+        elif isinstance(guided_grammar, str):
+            try:
+                with open(guided_grammar, "r") as f:
+                    input_text = f.read()
+                    parsed_grammar = parse_ebnf(input_text)
+                    grammar = parsed_grammar.get_grammar()
+                    self.lr1_grammar = fix_grammar(grammar)
+                    self.lr1_grammar_start_symbol = "root"
+            except:
+                pass
+        else:
+            self.lr1_grammar = None
+        self.dpda = DPDAStructure()
+        self.lr1_stack = [0]
+        self.lr1_current_node_id = 0
 
         # p d mode use params
         self.move_kv_to_decode_node = move_kv_to_decode_node

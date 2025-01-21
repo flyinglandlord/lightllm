@@ -94,8 +94,8 @@ person_schema = r"""{
 }
 """
 
-system_prompt = open("system.md", "r").read()
-user_input = open("user.md", "r").read()
+system_prompt = open("/mnt/nvme0/chenjunyi/project/lightllm/test/format_out/system.md", "r").read()
+user_input = open("/mnt/nvme0/chenjunyi/project/lightllm/test/format_out/user.md", "r").read()
 
 messages = [
     {
@@ -113,7 +113,7 @@ for i in range(1):
         # 'temperature': 0.1,
         "parameters": {
             "do_sample": False,
-            "guided_json": json_schema_str,
+            "guided_grammar": "/mnt/nvme0/chenjunyi/project/lightllm/lightllm/server/router/model_infer/mode_backend/continues_batch/format_out/grammar/json_grammar.ebnf",
             "max_new_tokens": 200,
         },
     }

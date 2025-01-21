@@ -50,7 +50,7 @@ class LightllmGrammarConstraintBackend(ContinuesBatchBackend):
 
     @calculate_time(show=True, min_cost_ms=300)
     def preprocess_dpda(self, sample_params):
-        print("here")
+        print("^^^^^^^here^^^^^^^")
         dpda_struct = DPDAStructure()
         start_time = time.time()
         dpda_struct.graph = compute_graph(
@@ -107,7 +107,8 @@ class LightllmGrammarConstraintBackend(ContinuesBatchBackend):
         req_dict = {}
         for i, run_obj in enumerate(run_reqs):
             sample_params = run_obj.sampling_param
-            if sample_params.lr1_grammar is not None:
+            print(sample_params.guided_grammar)
+            if sample_params.guided_grammar is not None:
                 if self.dpda_cache.get(sample_params.lr1_grammar_name) is None:
                     sample_params = self.preprocess_dpda(sample_params)
                     sample_params.lr1_stack = [0]
@@ -178,7 +179,7 @@ class LightllmGrammarConstraintBackend(ContinuesBatchBackend):
         mask = torch.ones_like(logits, dtype=torch.bool)
         for i, run_obj in enumerate(run_reqs):
             sample_params = run_obj.sampling_param
-            if sample_params.lr1_grammar is not None:
+            if sample_params.guided_grammar is not None:
                 if req_dict.get(sample_params.lr1_grammar_name) is None:
                     req_dict[sample_params.lr1_grammar_name] = []
                 req_dict[sample_params.lr1_grammar_name].append(i)

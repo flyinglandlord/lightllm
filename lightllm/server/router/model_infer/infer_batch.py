@@ -17,18 +17,6 @@ from lightllm.server.router.dynamic_prompt.radix_cache import RadixCache
 from lightllm.utils.log_utils import init_logger
 from lightllm.server.req_id_generator import convert_sub_id_to_group_id
 
-from lightllm.server.router.model_infer.mode_backend.continues_batch.format_out.grammar.example_grammar import (
-    num_grammar,
-    char_grammar,
-    string_grammar,
-    json_grammar,
-    expr_grammar,
-)
-from lightllm.server.router.model_infer.mode_backend.continues_batch.format_out.grammar.grammar_parser import (
-    fix_grammar,
-    parse_ebnf,
-)
-
 logger = init_logger(__name__)
 requests_mapping = {}
 group_mapping = {}
@@ -112,15 +100,29 @@ class InferSamplingParams:
         self.xgrammar_matcher = None
 
         # Lightllm constraint states
+        self.lr1_grammar_name = guided_grammar
         if guided_grammar == "expr":
+            from lightllm.server.router.model_infer.mode_backend.continues_batch.format_out.grammar.example_grammar import (
+                expr_grammar,
+            )
+
             self.lr1_grammar = expr_grammar
             self.lr1_grammar_start_symbol = "EXPR"
         elif guided_grammar == "json":
+            from lightllm.server.router.model_infer.mode_backend.continues_batch.format_out.grammar.example_grammar import (
+                json_grammar,
+            )
+
             self.lr1_grammar = json_grammar
             self.lr1_grammar_start_symbol = "JSON"
         elif isinstance(guided_grammar, str):
             try:
                 with open(guided_grammar, "r") as f:
+                    from lightllm.server.router.model_infer.mode_backend.continues_batch.format_out.grammar.grammar_parser import (
+                        fix_grammar,
+                        parse_ebnf,
+                    )
+
                     input_text = f.read()
                     parsed_grammar = parse_ebnf(input_text)
                     grammar = parsed_grammar.get_grammar()

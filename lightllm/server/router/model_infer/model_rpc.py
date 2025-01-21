@@ -19,8 +19,6 @@ from lightllm.server.router.model_infer.mode_backend import (
     ContinuesBatchBackendForPrefillNode,
     ContinuesBatchBackendForDecodeNode,
     DPBackend,
-)
-from lightllm.server.router.model_infer.mode_backend.continues_batch.impl_for_lightllm_constraint_mode import (
     LightllmGrammarConstraintBackend,
 )
 from lightllm.utils.log_utils import init_logger

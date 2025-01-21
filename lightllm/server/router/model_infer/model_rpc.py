@@ -20,6 +20,9 @@ from lightllm.server.router.model_infer.mode_backend import (
     ContinuesBatchBackendForDecodeNode,
     DPBackend,
 )
+from lightllm.server.router.model_infer.mode_backend.continues_batch.impl_for_lightllm_constraint_mode import (
+    LightllmGrammarConstraintBackend,
+)
 from lightllm.utils.log_utils import init_logger
 
 logger = init_logger(__name__)
@@ -49,8 +52,9 @@ class ModelRpcServer(rpyc.Service):
         if kvargs.get("args", None) is not None:
             is_simple_constraint_mode = kvargs.get("args", None).output_constraint_mode == "outlines"
             is_xgrammar_constraint_mode = kvargs.get("args", None).output_constraint_mode == "xgrammar"
+            is_lightllm_constraint_mode = kvargs.get("args", None).output_constraint_mode == "lightllm"
             assert not (
-                is_simple_constraint_mode and is_xgrammar_constraint_mode
+                is_simple_constraint_mode and is_xgrammar_constraint_mode and is_lightllm_constraint_mode
             ), "only one constraint mode can be true"
             is_prefill_node = kvargs.get("args", None).run_mode == "prefill"
             is_decode_node = kvargs.get("args", None).run_mode == "decode"
@@ -81,6 +85,8 @@ class ModelRpcServer(rpyc.Service):
         elif is_xgrammar_constraint_mode:
             # now we prioritize simple_constraint_mode(Outlines)
             self.backend = XgrammarBackend()
+        elif is_lightllm_constraint_mode:
+            self.backend = LightllmGrammarConstraintBackend()
         elif is_first_token_constraint_mode:
             self.backend = FirstTokenConstraintBackend()
         elif kvargs.get("dp_size", 1) > 1:

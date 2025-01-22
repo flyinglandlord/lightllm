@@ -69,6 +69,8 @@ class ContinuesBatchQueue(BaseQueue):
         # 如果当前已经被调度的请求数量超过了上限，直接不调度新的请求了。
         exist_req_num = self.get_batch_dp_req_size(current_batch) + len(self.pause_req_dict)
         req_is_full = exist_req_num >= self.running_max_req_size
+        if len(self.waiting_req_list) < 16:
+            return None
         if req_is_full:
             return None
 
@@ -94,6 +96,7 @@ class ContinuesBatchQueue(BaseQueue):
                     self.pause_req_dict.pop(req.request_id)
             else:
                 break
+        # print(len(can_run_list))
         if len(can_run_list) != 0:
             new_batch = Batch(uuid.uuid4().hex, can_run_list, dp_size=self.dp_size)
             self.waiting_req_list = self.waiting_req_list[len(can_run_list) + aborted_count :]

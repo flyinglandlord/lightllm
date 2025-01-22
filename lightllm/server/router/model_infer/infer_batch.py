@@ -101,6 +101,7 @@ class InferSamplingParams:
 
         # Lightllm constraint states
         self.lr1_grammar_name = guided_grammar
+        print(f"guided_grammar: {guided_grammar}")
         if guided_grammar == "expr":
             from lightllm.server.router.model_infer.mode_backend.continues_batch.format_out.grammar.example_grammar import (
                 expr_grammar,
@@ -123,6 +124,7 @@ class InferSamplingParams:
                         parse_ebnf,
                     )
 
+                    print(f"Load grammar from {guided_grammar}")
                     input_text = f.read()
                     parsed_grammar = parse_ebnf(input_text)
                     grammar = parsed_grammar.get_grammar()
@@ -532,12 +534,16 @@ class InferBatch:
     @torch.no_grad()
     def merge(cls, batch1, batch2):
         request_ids = batch1.request_ids + batch2.request_ids
+        batch_lr1_stack = torch.cat([batch1.batch_lr1_stack, batch2.batch_lr1_stack], dim=0)
+        batch_lr1_stack_size = torch.cat([batch1.batch_lr1_stack_size, batch2.batch_lr1_stack_size])
 
         return InferBatch(
             batch_id=batch1.batch_id,
             request_ids=request_ids,
             req_manager=batch1.req_manager,
             radix_cache=batch1.radix_cache,
+            batch_lr1_stack=batch_lr1_stack,
+            batch_lr1_stack_size=batch_lr1_stack_size,
         )
 
     def __len__(self):

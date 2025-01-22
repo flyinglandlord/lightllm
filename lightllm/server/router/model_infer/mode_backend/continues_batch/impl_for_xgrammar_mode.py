@@ -28,11 +28,12 @@ class XgrammarBackend(ContinuesBatchBackend):
 
         tokenizer_info = xgr.TokenizerInfo.from_huggingface(self.tokenizer)
         self.xgrammar_compiler = xgr.GrammarCompiler(tokenizer_info, max_threads=8)
+        self.vocab_size = tokenizer_info.vocab_size
         self.xgrammar_token_bitmask = xgr.allocate_token_bitmask(1, tokenizer_info.vocab_size)
 
         eos_token_ids = []
-        eos_token_ids.append(self.tokenizer.eos_token_id)
-        eos_token_ids.extend(self.args.eos_id)
+        # eos_token_ids.append(self.tokenizer.eos_token_id)
+        # eos_token_ids.extend(self.args.eos_id)
         # self.tokenizer.eos_token_ids = eos_token_ids
         # logger.info(f"eos_ids {self.tokenizer.eos_token_ids}")
         return
@@ -45,7 +46,6 @@ class XgrammarBackend(ContinuesBatchBackend):
         run_reqs: List[InferReq] = run_reqs
 
         logics = self.model.forward(**kwargs)
-
         mask = torch.ones_like(logics, dtype=torch.bool)
         for i, run_obj in enumerate(run_reqs):
             run_obj: InferReq = run_obj
@@ -64,8 +64,8 @@ class XgrammarBackend(ContinuesBatchBackend):
 
         next_token_ids, next_token_probs = sample(logics, run_reqs, self.eos_id)
         next_token_ids = next_token_ids.detach().cpu().numpy()
-        next_token_logprobs = torch.log(next_token_probs).detach().cpu().numpy()
 
+        next_token_logprobs = torch.log(next_token_probs).detach().cpu().numpy()
         for req_obj, next_token_id, next_token_logprob in zip(run_reqs, next_token_ids, next_token_logprobs):
             req_obj.cur_kv_len = len(req_obj.input_token_ids)
             req_obj.input_token_ids.append(next_token_id)
@@ -92,7 +92,7 @@ class XgrammarBackend(ContinuesBatchBackend):
             for i, run_obj in enumerate(run_reqs):
                 self._mask_req_out_token(i, run_obj, mask, logits[i])
             logits[mask] = -1000000.0
-
+        # xgr.apply_token_bitmask_inplace(logits[:, :self.vocab_size], self.xgrammar_token_bitmask.to(logits.device))
         logits[logits == float("-inf")] = -1000000.0
         next_token_ids, next_token_probs = sample(logits, run_reqs, self.eos_id)
         next_token_ids = next_token_ids.detach().cpu().numpy()

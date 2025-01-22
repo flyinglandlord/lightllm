@@ -38,7 +38,7 @@ basic_array ::= "[" ("" | ws basic_any (ws "," ws basic_any)*) ws "]"
 basic_object ::= "{" ("" | ws basic_string ws ":" ws basic_any ( ws "," ws basic_string ws ":" ws basic_any)*) ws "}"
 ws ::= [ \n\t]*
 """
-
+json_grammar_ebnf_file = "/mnt/nvme0/chenjunyi/project/lightllm/lightllm/server/router/model_infer/mode_backend/continues_batch/format_out/grammar/json_grammar.ebnf"
 json_schema_str = r"""
 {
     "type": "array",
@@ -98,22 +98,19 @@ system_prompt = open("/mnt/nvme0/chenjunyi/project/lightllm/test/format_out/syst
 user_input = open("/mnt/nvme0/chenjunyi/project/lightllm/test/format_out/user.md", "r").read()
 
 messages = [
-    {
-        "role": "system",
-        "content": system_prompt,
-    },
+    # {"role": "system","content": system_prompt,},
     {"role": "user", "content": user_input},
 ]
 
 inputs = tokenizer.apply_chat_template(messages, tokenize=False)
 
-for i in range(1):
+for i in range(16):
     data = {
         "inputs": inputs,
         # 'temperature': 0.1,
         "parameters": {
             "do_sample": False,
-            "guided_grammar": "/mnt/nvme0/chenjunyi/project/lightllm/lightllm/server/router/model_infer/mode_backend/continues_batch/format_out/grammar/json_grammar.ebnf",
+            "guided_grammar": json_grammar_ebnf_file,
             "max_new_tokens": 200,
         },
     }

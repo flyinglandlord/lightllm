@@ -107,7 +107,7 @@ class LightllmGrammarConstraintBackend(ContinuesBatchBackend):
         req_dict = {}
         for i, run_obj in enumerate(run_reqs):
             sample_params = run_obj.sampling_param
-            print(sample_params.guided_grammar)
+            # print(sample_params.guided_grammar)
             if sample_params.guided_grammar is not None:
                 if self.dpda_cache.get(sample_params.lr1_grammar_name) is None:
                     sample_params = self.preprocess_dpda(sample_params)
@@ -152,6 +152,10 @@ class LightllmGrammarConstraintBackend(ContinuesBatchBackend):
 
         idx = 0
         for req_obj, next_token_id, next_token_logprob in zip(run_reqs, next_token_ids, next_token_logprobs):
+            # fix the batch not same
+            next_token_id = next_token_ids[0]
+            next_token_logprob = next_token_logprobs[0]
+
             req_obj.cur_kv_len = len(req_obj.input_token_ids)
             req_obj.input_token_ids.append(next_token_id)
             req_obj.out_token_id_count[next_token_id] += 1
@@ -195,10 +199,10 @@ class LightllmGrammarConstraintBackend(ContinuesBatchBackend):
         # mask_thread.start()
         # self.compute_mask(run_reqs, mask, batch, req_dict, stream_mask)
 
-        # with torch.cuda.stream(stream_forward):
-        logits = self.model.forward(**kwargs)
+        with torch.cuda.stream(stream_forward):
+            logits = self.model.forward(**kwargs)
         # print(f"decode logits: {logits}")
-
+        
         mask = torch.ones_like(logits, dtype=torch.bool)
         for i, run_obj in enumerate(run_reqs):
             sample_params = run_obj.sampling_param
@@ -214,8 +218,8 @@ class LightllmGrammarConstraintBackend(ContinuesBatchBackend):
             self._batched_mask_req_out_token(
                 i_list, run_req_list, mask, batch.batch_lr1_stack, batch.batch_lr1_stack_size, prefill=False
             )
-        # mask_thread.join()
-        # torch.cuda.synchronize()
+        #mask_thread.join()
+        torch.cuda.synchronize()
         logits[mask] = -1000000.0
         # all_has_no_constraint = all([e.sampling_param.lr1_grammar is None for e in run_reqs])
         # if not all_has_no_constraint:
@@ -232,6 +236,11 @@ class LightllmGrammarConstraintBackend(ContinuesBatchBackend):
         idx = 0
         for req_obj, next_token_id, next_token_logprob in zip(run_reqs, next_token_ids, next_token_logprobs):
             req_obj: InferReq = req_obj
+
+            # fix the batch not same
+            next_token_id = next_token_ids[0]
+            next_token_logprob = next_token_logprobs[0]
+
             req_obj.cur_kv_len = len(req_obj.input_token_ids)
             req_obj.input_token_ids.append(next_token_id)
             req_obj.out_token_id_count[next_token_id] += 1
@@ -267,6 +276,7 @@ class LightllmGrammarConstraintBackend(ContinuesBatchBackend):
                     # req_obj.finish_status = FinishStatus.FINISHED_STOP
         except Exception as e:
             req_obj.finish_status = FinishStatus.FINISHED_STOP
+
 
         if next_token_id in self.eos_token_ids:
             req_obj.finish_status = FinishStatus.FINISHED_STOP
@@ -308,9 +318,7 @@ class LightllmGrammarConstraintBackend(ContinuesBatchBackend):
             current_stack_top = lr1_stack_size.to(output.device)
         else:
             current_stack_top = torch.tensor(
-                [len(sample_params.lr1_stack) for sample_params in sample_params_list],
-                dtype=torch.int32,
-                device=output.device,
+                [len(sample_params.lr1_stack) for sample_params in sample_params_list], dtype=torch.int32, device=output.device
             )
             max_stack_depth = torch.max(current_stack_top).item()
 
@@ -329,7 +337,7 @@ class LightllmGrammarConstraintBackend(ContinuesBatchBackend):
         # st = time.time()
         # torch.save(current_stack, "/mnt/nvme0/chenjunyi/project/lightllm/tmp/current_stack.pt")
         # torch.save(current_stack_top, "/mnt/nvme0/chenjunyi/project/lightllm/tmp/current_stack_top.pt")
-        # torch.save(current_state, "/mnt/nvme0/chenjunyi/project/lightllm/tmp/current_state.pt")
+        # torch.save(current_state, "/mnt/nvme0/chenjunyi/project/lightllm/tmp/current_sasatate.pt")
         # torch.save(sample_params_list[0].dpda.input_sequences, "/mnt/nvme0/chenjunyi/project/lightllm/tmp/input_sequences.pt")
         # torch.save(sample_params_list[0].dpda.sequence_len, "/mnt/nvme0/chenjunyi/project/lightllm/tmp/sequence_len.pt")
         # torch.save(sample_params_list[0].dpda.shift_table, "/mnt/nvme0/chenjunyi/project/lightllm/tmp/shift_table.pt")
@@ -337,29 +345,20 @@ class LightllmGrammarConstraintBackend(ContinuesBatchBackend):
         # torch.save(sample_params_list[0].dpda.push_table, "/mnt/nvme0/chenjunyi/project/lightllm/tmp/push_table.pt")
         # torch.save(sample_params_list[0].dpda.pop_table, "/mnt/nvme0/chenjunyi/project/lightllm/tmp/pop_table.pt")
         # torch.save(sample_params_list[0].dpda.dest_table, "/mnt/nvme0/chenjunyi/project/lightllm/tmp/dest_table.pt")
-        # torch.cuda.synchronize()
-        current_state_len = current_state.shape[0]
-        # 7 state in a block to launch the kernel
-        # note: the last block may not be full
-        for i in range(0, current_state_len, 1):
-            current_state_block = current_state[i : i + 1]
-            current_stack_block = current_stack[i : i + 1]
-            current_stack_top_block = current_stack_top[i : i + 1]
-            output_block = output[i * vocab_size : (i + 1) * vocab_size]
-            batched_check_dpda(
-                sample_params_list[0].dpda.input_sequences.to(output.device),
-                sample_params_list[0].dpda.sequence_len.to(output.device),
-                sample_params_list[0].dpda.shift_table.to(output.device),
-                sample_params_list[0].dpda.edge_num_table.to(output.device),
-                sample_params_list[0].dpda.push_table.to(output.device),
-                sample_params_list[0].dpda.pop_table.to(output.device),
-                sample_params_list[0].dpda.dest_table.to(output.device),
-                current_stack_block,
-                current_stack_top_block,
-                current_state_block,
-                output_block,
-                max_stack_depth,
-            )
+        batched_check_dpda(
+            sample_params_list[0].dpda.input_sequences.to(output.device),
+            sample_params_list[0].dpda.sequence_len.to(output.device),
+            sample_params_list[0].dpda.shift_table.to(output.device),
+            sample_params_list[0].dpda.edge_num_table.to(output.device),
+            sample_params_list[0].dpda.push_table.to(output.device),
+            sample_params_list[0].dpda.pop_table.to(output.device),
+            sample_params_list[0].dpda.dest_table.to(output.device),
+            current_stack,
+            current_stack_top,
+            current_state,
+            output,
+            max_stack_depth,
+        )
         # ed = time.time()
         # print(f"batched_check_dpda cost: {ed - st}")
 

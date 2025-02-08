@@ -94,6 +94,16 @@ person_schema = r"""{
 }
 """
 
+ebnf_grammar = r"""
+root ::= object
+object ::= "{" ws ( string ":" ws value ("," ws string ":" ws value)* )? "}"
+value ::= object | array | string | number | ("true" | "false" | "null") ws
+array  ::= "[" ws ( value ("," ws value)* )? "]" ws
+string ::= "\"" [a-zA-Z\x20\x21\x23\x24\x25\x26\x28\x29\x2a\x2b\x2c\x2d\x2e\x2f\x30-\x39\x41-\x5a\x5e\x5f\x60\x61-\x7a\x7e]* "\"" ws
+number ::= ("0" | "-"? [1-9] [0-9]*) ("." [0-9]+)? ([eE] [+-]? [0-9]+)? ws
+ws ::= ([ĊĠ     ] ws)?
+"""
+
 system_prompt = open("/mnt/nvme0/chenjunyi/project/lightllm/test/format_out/system.md", "r").read()
 user_input = open("/mnt/nvme0/chenjunyi/project/lightllm/test/format_out/user.md", "r").read()
 
@@ -104,7 +114,7 @@ messages = [
 
 inputs = tokenizer.apply_chat_template(messages, tokenize=False)
 
-for i in range(16):
+for i in range(256):
     data = {
         "inputs": inputs,
         # 'temperature': 0.1,

@@ -101,7 +101,7 @@ class InferSamplingParams:
 
         # Lightllm constraint states
         self.lr1_grammar_name = guided_grammar
-        print(f"guided_grammar: {guided_grammar}")
+        # print(f"guided_grammar: {guided_grammar}")
         if guided_grammar == "expr":
             from lightllm.server.router.model_infer.mode_backend.continues_batch.format_out.grammar.example_grammar import (
                 expr_grammar,
@@ -124,7 +124,7 @@ class InferSamplingParams:
                         parse_ebnf,
                     )
 
-                    print(f"Load grammar from {guided_grammar}")
+                    # print(f"Load grammar from {guided_grammar}")
                     input_text = f.read()
                     parsed_grammar = parse_ebnf(input_text)
                     grammar = parsed_grammar.get_grammar()

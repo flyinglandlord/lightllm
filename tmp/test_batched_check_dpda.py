@@ -38,7 +38,7 @@ pop_table = torch.load("/mnt/nvme0/chenjunyi/project/lightllm/tmp/pop_table.pt")
 dest_table = torch.load("/mnt/nvme0/chenjunyi/project/lightllm/tmp/dest_table.pt").cuda()
 
 vocab_size = input_sequences.shape[0]
-output = torch.empty((8 * vocab_size), dtype=torch.int32, device="cuda")
+output = torch.empty((16 * vocab_size), dtype=torch.int32, device="cuda")
 # current_state = torch.tensor([current_state[0]] * 8, dtype=torch.int32, device="cuda")
 max_stack_depth = current_stack.shape[1]
 

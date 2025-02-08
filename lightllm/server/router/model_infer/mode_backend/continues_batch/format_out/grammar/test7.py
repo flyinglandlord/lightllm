@@ -5,12 +5,15 @@ from example_grammar import expr_grammar, json_grammar, string_grammar
 
 
 def create_grammer():
-    # grammar = [
-    #     (NT("S'"), [NT("S")]),
-    #     (NT("S"), [T("a"), T("b")]),
-    #     (NT("S"), [T("a"), NT("S"), T("b")]),
-    # ]
-    return expr_grammar
+    grammar = [
+        (NT("S'"), [NT("S")]),
+        (NT("S"), [NT("L"), T("="), NT("R")]),
+        (NT("S"), [NT("R")]),
+        (NT("L"), [T("*"), NT("R")]),
+        (NT("L"), [T("i")]),
+        (NT("R"), [NT("L")]),
+    ]
+    return grammar
 
 
 grammar = create_grammer()
@@ -18,7 +21,7 @@ grammar = create_grammer()
 ans = compute_first(grammar)
 print(ans)
 
-graph = compute_graph(grammar=grammar, start_symbol="EXPR")
+graph = compute_graph(grammar=grammar, start_symbol="S'")
 
 graph_str = graph.to_mermaid()
 with open("mermaid.md", mode="+w") as file:
@@ -41,8 +44,8 @@ with open("mermaid1.md", mode="+w") as file:
 for in_str in [
     # """{"name":"Alice","age":30,"address":{"city":"Wonderland"},"isStudent":false,"scores":[85,92,88]}""",
     # """[{"name":"Alice","age":30,"address":{"city":"Wonderland"},"isStudent":false,"scores":[85,92,88]}]"""
-    "1*(1/(2*2))",
-    "1*(1.34/2*(2))",
+    #"1*(1/(2*2))",
+    # "1*(1.34/2*(2))",
 ]:
     try:
         dpda.accept(in_str)

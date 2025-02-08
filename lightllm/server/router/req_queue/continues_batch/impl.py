@@ -69,7 +69,8 @@ class ContinuesBatchQueue(BaseQueue):
         # 如果当前已经被调度的请求数量超过了上限，直接不调度新的请求了。
         exist_req_num = self.get_batch_dp_req_size(current_batch) + len(self.pause_req_dict)
         req_is_full = exist_req_num >= self.running_max_req_size
-        if len(self.waiting_req_list) < 16:
+        # fix the batch size to 8
+        if len(self.waiting_req_list) < 128:
             return None
         if req_is_full:
             return None

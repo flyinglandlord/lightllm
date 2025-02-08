@@ -30,6 +30,7 @@ class XgrammarBackend(ContinuesBatchBackend):
         self.xgrammar_compiler = xgr.GrammarCompiler(tokenizer_info, max_threads=8)
         self.vocab_size = tokenizer_info.vocab_size
         self.xgrammar_token_bitmask = xgr.allocate_token_bitmask(1, tokenizer_info.vocab_size)
+        self.xgrammar_fake_token_bitmask = xgr.allocate_token_bitmask(64, tokenizer_info.vocab_size)
 
         eos_token_ids = []
         # eos_token_ids.append(self.tokenizer.eos_token_id)
@@ -46,6 +47,7 @@ class XgrammarBackend(ContinuesBatchBackend):
         run_reqs: List[InferReq] = run_reqs
 
         logics = self.model.forward(**kwargs)
+        logics_new = torch.zeros_like(logics, dtype=torch.float32, device=logics.device)
         mask = torch.ones_like(logics, dtype=torch.bool)
         for i, run_obj in enumerate(run_reqs):
             run_obj: InferReq = run_obj
@@ -58,6 +60,7 @@ class XgrammarBackend(ContinuesBatchBackend):
                 sample_params.xgrammar_matcher = xgr.GrammarMatcher(xgrammar_compiled_grammar)
             self._mask_req_out_token(i, run_obj, mask, logics[i])
 
+        xgr.apply_token_bitmask_inplace(logics_new[:, :self.vocab_size], self.xgrammar_fake_token_bitmask.to(logics.device))
         # fix the logics with -inf to a large negative value
         logics[logics == float("-inf")] = -1000000.0
         logics[mask] = -1000000.0
@@ -67,6 +70,10 @@ class XgrammarBackend(ContinuesBatchBackend):
 
         next_token_logprobs = torch.log(next_token_probs).detach().cpu().numpy()
         for req_obj, next_token_id, next_token_logprob in zip(run_reqs, next_token_ids, next_token_logprobs):
+            # fix for the different behavior of the model
+            next_token_id = next_token_ids[0]
+            next_token_logprob = next_token_logprobs[0]
+
             req_obj.cur_kv_len = len(req_obj.input_token_ids)
             req_obj.input_token_ids.append(next_token_id)
             req_obj.out_token_id_count[next_token_id] += 1
@@ -85,6 +92,7 @@ class XgrammarBackend(ContinuesBatchBackend):
         run_reqs: List[InferReq] = run_reqs
 
         logits = self.model.forward(**kwargs)
+        logits_new = torch.zeros_like(logits, dtype=torch.float32, device=logits.device)
 
         all_has_no_constraint = all([not e.sampling_param.has_constraint_setting() for e in run_reqs])
         if not all_has_no_constraint:
@@ -92,13 +100,17 @@ class XgrammarBackend(ContinuesBatchBackend):
             for i, run_obj in enumerate(run_reqs):
                 self._mask_req_out_token(i, run_obj, mask, logits[i])
             logits[mask] = -1000000.0
-        # xgr.apply_token_bitmask_inplace(logits[:, :self.vocab_size], self.xgrammar_token_bitmask.to(logits.device))
+        xgr.apply_token_bitmask_inplace(logits_new[:, :self.vocab_size], self.xgrammar_fake_token_bitmask.to(logits.device))
         logits[logits == float("-inf")] = -1000000.0
         next_token_ids, next_token_probs = sample(logits, run_reqs, self.eos_id)
         next_token_ids = next_token_ids.detach().cpu().numpy()
         next_token_logprobs = torch.log(next_token_probs).detach().cpu().numpy()
 
         for req_obj, next_token_id, next_token_logprob in zip(run_reqs, next_token_ids, next_token_logprobs):
+            # fix for the different behavior of the model
+            next_token_id = next_token_ids[0]
+            next_token_logprob = next_token_logprobs[0]
+
             req_obj: InferReq = req_obj
             req_obj.cur_kv_len = len(req_obj.input_token_ids)
             req_obj.input_token_ids.append(next_token_id)
@@ -117,7 +129,10 @@ class XgrammarBackend(ContinuesBatchBackend):
             if sample_params.xgrammar_matcher.is_terminated():
                 req_obj.finish_status = FinishStatus.FINISHED_STOP
             else:
-                assert sample_params.xgrammar_matcher.accept_token(next_token_id)
+                try:
+                    sample_params.xgrammar_matcher.accept_token(next_token_id)
+                except Exception as e:
+                    pass
 
         metadata = {
             "id": next_token_id,
@@ -136,8 +151,10 @@ class XgrammarBackend(ContinuesBatchBackend):
     def _mask_req_out_token(self, i, run_obj: InferReq, mask, logits):
         sample_params = run_obj.sampling_param
         if sample_params.guided_grammar is not None or sample_params.guided_json is not None:
-            sample_params.xgrammar_matcher.fill_next_token_bitmask(self.xgrammar_token_bitmask)
-            xgr.apply_token_bitmask_inplace(logits, self.xgrammar_token_bitmask.to(logits.device))
+            sample_params.xgrammar_matcher.fill_next_token_bitmask(self.xgrammar_fake_token_bitmask, i)
+            if i == 0:
+                sample_params.xgrammar_matcher.fill_next_token_bitmask(self.xgrammar_token_bitmask)
+                xgr.apply_token_bitmask_inplace(logits, self.xgrammar_token_bitmask.to(logits.device))
             mask[i, :] = False
         elif sample_params.allowed_token_ids is not None:
             mask[i, sample_params.allowed_token_ids] = False

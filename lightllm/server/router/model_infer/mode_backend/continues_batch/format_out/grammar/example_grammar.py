@@ -1,4 +1,4 @@
-from .core import NT, T
+from  lightllm.server.router.model_infer.mode_backend.continues_batch.format_out.grammar.core import NT, T
 
 numbers = {i: T(str(i)) for i in range(10)}
 alphabet = {x: T(x) for x in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"}

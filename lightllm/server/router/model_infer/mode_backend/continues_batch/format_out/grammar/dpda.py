@@ -6,7 +6,7 @@ from typing import Any, Union, Dict, List, Tuple, Set, FrozenSet
 
 import torch
 from tqdm import tqdm
-from .core import Item, T, NT, ItemLookAhead, ItemSet, Graph, Gen
+from lightllm.server.router.model_infer.mode_backend.continues_batch.format_out.grammar.core import Item, T, NT, ItemLookAhead, ItemSet, Graph, Gen
 
 # from lightllm_constraint_decode_kernel import dfs_find_circle
 
@@ -38,7 +38,7 @@ class LRGraph:
         for node in self.origin_graph.graph_nodes:
             self.node_id_to_itemset[node.node_id] = node
             for input_t_or_nt, dest_node in node.edge_to_next.items():
-                edge = Edge(node.node_id, input_t_or_nt, dest_node.node_id)
+                edge = Edge(node.node_id, input_t_or_nt   , dest_node.node_id)
                 self.source_id_to_edge[node.node_id][edge.transfer_input] = edge
                 self.dest_id_to_edges[dest_node.node_id].append(edge)
                 self.s_id_e_id_to_edge[edge.source_id][edge.dest_id] = edge

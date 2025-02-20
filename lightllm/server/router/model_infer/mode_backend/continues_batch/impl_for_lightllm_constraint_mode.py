@@ -56,9 +56,11 @@ class LightllmGrammarConstraintBackend(ContinuesBatchBackend):
         dpda_struct.graph = compute_graph(
             sample_params.lr1_grammar, start_symbol=sample_params.lr1_grammar_start_symbol
         )
+        # print(dpda_struct.graph)
         # graph.check_lr1()
         dpda_struct.lr1_graph = LRGraph(dpda_struct.graph)
         dpda_struct.dpda = DPDA(lr_graph=dpda_struct.lr1_graph)
+        dpda_struct.dpda.remove_no_input_node_to_edges()
         (
             dpda_struct.shift_table,
             dpda_struct.edge_num_table,
@@ -199,8 +201,8 @@ class LightllmGrammarConstraintBackend(ContinuesBatchBackend):
         # mask_thread.start()
         # self.compute_mask(run_reqs, mask, batch, req_dict, stream_mask)
 
-        with torch.cuda.stream(stream_forward):
-            logits = self.model.forward(**kwargs)
+        # with torch.cuda.stream(stream_forward):
+        logits = self.model.forward(**kwargs)
         # print(f"decode logits: {logits}")
         
         mask = torch.ones_like(logits, dtype=torch.bool)
@@ -219,7 +221,7 @@ class LightllmGrammarConstraintBackend(ContinuesBatchBackend):
                 i_list, run_req_list, mask, batch.batch_lr1_stack, batch.batch_lr1_stack_size, prefill=False
             )
         #mask_thread.join()
-        torch.cuda.synchronize()
+        #torch.cuda.synchronize()
         logits[mask] = -1000000.0
         # all_has_no_constraint = all([e.sampling_param.lr1_grammar is None for e in run_reqs])
         # if not all_has_no_constraint:
@@ -276,6 +278,7 @@ class LightllmGrammarConstraintBackend(ContinuesBatchBackend):
                     # req_obj.finish_status = FinishStatus.FINISHED_STOP
         except Exception as e:
             req_obj.finish_status = FinishStatus.FINISHED_STOP
+            pass
 
 
         if next_token_id in self.eos_token_ids:
@@ -305,7 +308,10 @@ class LightllmGrammarConstraintBackend(ContinuesBatchBackend):
 
         current_state_list = []
         for sample_params in sample_params_list:
-            current_state_list.append(sample_params.lr1_current_node_id)
+            if sample_params.lr1_current_node_id is not None:
+                current_state_list.append(sample_params.lr1_current_node_id)
+            else:
+                current_state_list.append(0)
             # current_state_list.append(torch.tensor([sample_params.lr1_current_node_id] *
             # vocab_size, dtype=torch.int32, device="cuda"))
         output = torch.empty((batch_size * vocab_size), dtype=torch.int32, device="cuda")

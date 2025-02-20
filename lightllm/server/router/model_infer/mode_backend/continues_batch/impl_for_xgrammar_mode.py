@@ -30,7 +30,7 @@ class XgrammarBackend(ContinuesBatchBackend):
         self.xgrammar_compiler = xgr.GrammarCompiler(tokenizer_info, max_threads=8)
         self.vocab_size = tokenizer_info.vocab_size
         self.xgrammar_token_bitmask = xgr.allocate_token_bitmask(1, tokenizer_info.vocab_size)
-        self.xgrammar_fake_token_bitmask = xgr.allocate_token_bitmask(64, tokenizer_info.vocab_size)
+        self.xgrammar_fake_token_bitmask = xgr.allocate_token_bitmask(1024, tokenizer_info.vocab_size)
 
         eos_token_ids = []
         # eos_token_ids.append(self.tokenizer.eos_token_id)
@@ -128,11 +128,13 @@ class XgrammarBackend(ContinuesBatchBackend):
             sample_params = req_obj.sampling_param
             if sample_params.xgrammar_matcher.is_terminated():
                 req_obj.finish_status = FinishStatus.FINISHED_STOP
+                # pass
             else:
                 try:
                     sample_params.xgrammar_matcher.accept_token(next_token_id)
                 except Exception as e:
-                    pass
+                    req_obj.finish_status = FinishStatus.FINISHED_STOP
+                    # pass
 
         metadata = {
             "id": next_token_id,

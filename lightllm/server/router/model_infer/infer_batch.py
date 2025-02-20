@@ -123,14 +123,13 @@ class InferSamplingParams:
                         fix_grammar,
                         parse_ebnf,
                     )
-
-                    # print(f"Load grammar from {guided_grammar}")
                     input_text = f.read()
                     parsed_grammar = parse_ebnf(input_text)
                     grammar = parsed_grammar.get_grammar()
                     self.lr1_grammar = fix_grammar(grammar)
                     self.lr1_grammar_start_symbol = "root"
             except:
+                # print('failed read grammar file')
                 pass
         else:
             self.lr1_grammar = None

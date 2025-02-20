@@ -1,0 +1,13 @@
+root ::= "{" reasoning "," conclusion "}"
+
+reasoning ::= "\"" "reasoning" "\"" ":" "[" reasoning_steps "]"
+
+reasoning_steps ::= reasoning_step | reasoning_step "," reasoning_steps
+
+reasoning_step ::= "{" "\"" "reasoning_step" "\"" ":" string "}"
+
+conclusion ::= "\"" "conclusion" "\"" ":" string
+
+string ::= "\"" [ĠĊ !#-\[\]-~]* "\"" ws
+
+ws ::= ([ĊĠ     ] ws)?

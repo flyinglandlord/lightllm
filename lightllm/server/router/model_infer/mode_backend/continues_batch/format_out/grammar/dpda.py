@@ -753,7 +753,7 @@ class DPDA:
                 max_edge_num_for_same_t = max_edge_num_for_same_t
         # 构造转移表 node_num * symbol_num * edge_num_in_
         shift_table = torch.zeros(
-            (len(self.lr_graph.origin_graph.graph_nodes), len(symbol_to_id), max_edge_num_for_same_t),
+            (len(self.lr_graph.origin_graph.graph_nodes), len(symbol_to_id), max_edge_num_for_same_t+5),
             dtype=torch.int32,
             device="cuda",
         )

@@ -1,4 +1,5 @@
 import time
+import os
 import uuid
 import numpy as np
 from typing import List
@@ -70,7 +71,9 @@ class ContinuesBatchQueue(BaseQueue):
         exist_req_num = self.get_batch_dp_req_size(current_batch) + len(self.pause_req_dict)
         req_is_full = exist_req_num >= self.running_max_req_size
         # fix the batch size to 8
-        if len(self.waiting_req_list) < 128:
+        exp_batch_size = os.environ.get('EXP_BATCH_SIZE', '0')
+        # print('current experiment batch size: ', exp_batch_size)
+        if len(self.waiting_req_list) < int(exp_batch_size):
             return None
         if req_is_full:
             return None

@@ -99,26 +99,6 @@ person_schema = r"""{
 }
 """
 
-ebnf_grammar = r"""
-root ::= object
-object ::= "{" ws ( string ":" ws value ("," ws string ":" ws value)* )? "}"
-value ::= object | array | string | number | ("true" | "false" | "null") ws
-array  ::= "[" ws ( value ("," ws value)* )? "]" ws
-string ::= "\"" [a-zA-Z\x20\x21\x23\x24\x25\x26\x28\x29\x2a\x2b\x2c\x2d\x2e\x2f\x30-\x39\x41-\x5a\x5e\x5f\x60\x61-\x7a\x7e]* "\"" ws
-number ::= ("0" | "-"? [1-9] [0-9]*) ("." [0-9]+)? ([eE] [+-]? [0-9]+)? ws
-ws ::= ([ĊĠ     ] ws)?
-"""
-
-cot_grammar = r"""
-root ::= "{" reasoning "," conclusion "}"
-reasoning ::= "\"" "reasoning" "\"" ":" "[" reasoning_steps "]"
-reasoning_steps ::= reasoning_step | reasoning_step "," reasoning_steps
-reasoning_step ::= "{" "\"" "reasoning_step" "\"" ":" string "}"
-conclusion ::= "\"" "conclusion" "\"" ":" string
-string ::= "\"" [a-zA-Z\x20\x21\x23\x24\x25\x26\x28\x29\x2a\x2b\x2c\x2d\x2e\x2f\x30-\x39\x41-\x5a\x5e\x5f\x60\x61-\x7a\x7e]* "\"" ws
-ws ::= ([ĊĠ     ] ws)?
-"""
-
 system_prompt = open("/mnt/nvme0/chenjunyi/project/lightllm/test/format_out/system.md", "r").read()
 user_input = open("/mnt/nvme0/chenjunyi/project/lightllm/test/format_out/user.md", "r").read()
 
@@ -147,8 +127,8 @@ for i in range(32):
         # 'temperature': 0.1,
         "parameters": {
             "do_sample": False,
-            "guided_grammar": ebnf_grammar,
-            "max_new_tokens": 75,
+            "guided_grammar": json_grammar_ebnf_file,
+            "max_new_tokens": 150,
         },
     }
     thread = RequestThread(url, headers, data)

@@ -1,3 +1,4 @@
+import flux
 import torch.distributed as dist
 import os
 import torch
@@ -73,6 +74,20 @@ def init_vision_distributed_env(kvargs):
     del _a
 
 
+def init_seed(seed=0):
+    os.environ["NCCL_DEBUG"] = os.getenv("NCCL_DEBUG", "ERROR")
+    os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":16:8"
+    torch.use_deterministic_algorithms(True, warn_only=True)
+    torch.set_printoptions(precision=2)
+    torch.manual_seed(3 + seed)
+    torch.cuda.manual_seed_all(3 + seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+    torch.backends.cuda.matmul.allow_tf32 = False
+    torch.backends.cuda.matmul.allow_fp16_reduced_precision_reduction = False
+    torch.backends.cuda.matmul.allow_bf16_reduced_precision_reduction = False
+
+
 def init_distributed_env(kvargs):
     assert kvargs["world_size"] % kvargs["args"].nnodes == 0, "world_size should be divided by nnodes"
     node_world_size = kvargs["world_size"] // kvargs["args"].nnodes
@@ -92,6 +107,11 @@ def init_distributed_env(kvargs):
 
     device_id = kvargs["rank_id"] % get_node_world_size()
     set_current_device_id(device_id)
+
+    os.environ["RANK"] = str(kvargs["rank_id"])
+    os.environ["WORLD_SIZE"] = str(kvargs["world_size"])
+    os.environ["LOCAL_RANK"] = str(kvargs["rank_id"] % node_world_size)
+
     torch.cuda.set_device(device_id)
     dist.init_process_group(
         "nccl",
@@ -99,10 +119,19 @@ def init_distributed_env(kvargs):
         rank=kvargs["rank_id"],
         world_size=kvargs["world_size"],
     )
+    assert torch.distributed.is_initialized()
+    # global _TP_GROUP
+    # _TP_GROUP = flux.get_dist_env(deterministic=False).get_world()
+    init_seed(seed=kvargs["rank_id"])
+    flux.init_flux_shm(torch.distributed.group.WORLD)
+    torch.cuda.synchronize()
+
     # warmup nccl communicator
     _a = torch.zeros([1]).to(f"cuda:{device_id}")
     dist.all_reduce(_a)
     del _a
+
+    return None
 
 
 def set_global_rank(global_rank: int):

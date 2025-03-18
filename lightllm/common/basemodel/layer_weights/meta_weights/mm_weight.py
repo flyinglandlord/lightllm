@@ -1,10 +1,13 @@
 import os
 import torch
+import flux
+
 from .base_weight import BaseWeightTpl
 from typing import Optional, Tuple, List, Dict, Any
 from lightllm.common.basemodel.layer_infer.cache_tensor_manager import g_cache_manager
 from lightllm.common.quantization.quantize_method import QuantizationMethod
 from lightllm.utils.dist_utils import get_current_device_id
+from torch.distributed import ProcessGroup
 
 
 def generate_scale_name(name, weight_scale_suffix, act_scale_suffix):
@@ -29,9 +32,161 @@ class MMWeightTpl(BaseWeightTpl):
         self.bias: Optional[torch.Tensor] = None
         self.weight_scale: Optional[torch.Tensor] = None
         self.input_scale: Optional[torch.Tensor] = None
+        self.enable_flux = os.getenv("ENABLE_FLUX", "0").upper() in ["ON", "TRUE", "1"]
 
     def set_quant_method(self, quant_method: QuantizationMethod) -> None:
         self.quant_method = quant_method
+
+    def flux_gemm_rs(
+        self,
+        input_tensor: torch.Tensor,
+        out: Optional[torch.Tensor] = None,
+        use_custom_tensor_mananger: bool = True,
+        tp_group: ProcessGroup = None,
+    ):
+        print("---------kernel start---------")
+        # pad the input tensor to make it size(0) is multiple to self.world_size_
+        # then move the input tensor to the specific device
+        origin_input_M = input_tensor.size(0)
+        if input_tensor.size(0) % self.world_size_ != 0:
+            pad_size = (self.world_size_ - input_tensor.size(0) % self.world_size_) % self.world_size_
+            pad_tensor = torch.zeros(
+                pad_size, input_tensor.size(1), dtype=input_tensor.dtype, device=input_tensor.device
+            )
+            input_tensor = torch.cat([input_tensor, pad_tensor], dim=0)
+        input_tensor = input_tensor.to(f"cuda:{torch.distributed.group.WORLD.rank()}")
+
+        # check the weight contiguous
+        if not self.weight.is_contiguous():
+            self.weight = self.weight.contiguous()
+        assert self.weight.is_contiguous(), "weight must be contiguous"
+
+        # input_tensor: [4, 7168]
+        # weight: [7168, 4096]
+        print(f"weight shape: {self.weight.shape}")
+        print(f"input_tensor shape: {input_tensor.shape}")
+        print(f"cuda:{torch.distributed.group.WORLD.rank()}")
+        M = input_tensor.size(0)
+        local_M = input_tensor.size(0) // self.world_size_
+        N = self.weight.size(1)
+        local_K = self.weight.size(0)
+
+        torch.cuda.synchronize()
+
+        if out is None:
+            # out shape: [4, 4096]
+            shape = (origin_input_M, self.weight.shape[1])
+            dtype = input_tensor.dtype
+            device = input_tensor.device
+            if use_custom_tensor_mananger:
+                out = g_cache_manager.alloc_tensor(shape, dtype, device=device, is_graph_out=False)
+            else:
+                out = torch.zeros(shape, dtype=dtype, device=device)
+        print("kernel define start")
+        with flux.util.group_profile(
+            name="gemm_rs_" + os.environ["TORCHELASTIC_RUN_ID"], do_prof=False, group=torch.distributed.group.WORLD
+        ):
+            gemm_rs_op = flux.GemmRS(
+                torch.distributed.group.WORLD,
+                1,
+                (M + 1024 - 1) // 1024 * 1024,
+                N,
+                input_tensor.dtype,
+                out.dtype,
+                transpose_weight=True,
+            )
+            print(f"gemm_rs_kernel initialized M={M}, N={N}, local_K={local_K}")
+            ans = gemm_rs_op.forward(
+                input_tensor,
+                self.weight,
+                bias=self.bias,
+                fast_accum=False,
+                reduce_scatter_option=flux.ReduceScatterOption(),
+            )
+            # according to the self.tp_rank_, padding the out tensor to [origin_input_M, N]
+            print(ans)
+            print(ans.shape)
+            tp_M_start_index = local_M * self.tp_rank_
+            tp_M_end_index = local_M * (self.tp_rank_ + 1)
+            if tp_M_end_index > origin_input_M:
+                tp_M_end_index = origin_input_M
+            # zero the out tensor
+            out[tp_M_start_index:tp_M_end_index, :] = ans[: tp_M_end_index - tp_M_start_index, :]
+            print("---------kernel end---------")
+            return out, ans
+
+    def flux_ag_gemm(
+        self,
+        input_tensor: torch.Tensor,
+        out: Optional[torch.Tensor] = None,
+        use_custom_tensor_mananger: bool = True,
+        tp_group: ProcessGroup = None,
+    ):
+        print("---------kernel start---------")
+        origin_input_M = input_tensor.size(0)
+        if input_tensor.size(0) % self.world_size_ != 0:
+            # if input_tensor.size(0) = 7, world_size = 4, pad_size = 1
+            # if input_tensor.size(0) = 8, world_size = 4, pad_size = 0
+            pad_size = (self.world_size_ - input_tensor.size(0) % self.world_size_) % self.world_size_
+            pad_tensor = torch.zeros(
+                pad_size, input_tensor.size(1), dtype=input_tensor.dtype, device=input_tensor.device
+            )
+            input_tensor = torch.cat([input_tensor, pad_tensor], dim=0)
+        input_tensor = input_tensor.to(f"cuda:{torch.distributed.group.WORLD.rank()}")
+
+        # check the weight contiguous
+        if not self.weight.is_contiguous():
+            self.weight = self.weight.contiguous()
+        assert self.weight.is_contiguous(), "weight must be contiguous"
+
+        print(f"weight shape: {self.weight.shape}")
+        print(f"input_tensor shape: {input_tensor.shape}")
+        print(f"cuda:{torch.distributed.group.WORLD.rank()}")
+        M = input_tensor.shape[0]
+        K = input_tensor.shape[1]
+        N = self.weight.shape[1]
+        local_M = input_tensor.size(0) // self.world_size_
+        local_M_start_index = local_M * self.tp_rank_
+        local_M_end_index = local_M * (self.tp_rank_ + 1)
+
+        if out is None:
+            shape = (input_tensor.shape[0], self.weight.shape[1])
+            dtype = input_tensor.dtype
+            device = input_tensor.device
+            if use_custom_tensor_mananger:
+                out = g_cache_manager.alloc_tensor(shape, dtype, device=device, is_graph_out=False)
+            else:
+                out = torch.zeros(shape, dtype=dtype, device=device)
+        with flux.util.group_profile(
+            name="ag_gemm_" + os.environ["TORCHELASTIC_RUN_ID"], do_prof=False, group=torch.distributed.group.WORLD
+        ):
+            ag_option = flux.AllGatherOption()
+            ag_gemm_op = flux.AGKernel(
+                torch.distributed.group.WORLD,
+                1,
+                M,
+                N,
+                K,
+                input_tensor.dtype,
+                output_dtype=out.dtype,
+            )
+            full_input = torch.empty((M, K), dtype=input_tensor.dtype, device=input_tensor.device)
+            print(f"ag_gemm_kernel initialized M={M}, N={N}, K={K}")
+            ans = ag_gemm_op.forward(
+                input_tensor[local_M_start_index:local_M_end_index],
+                self.weight,
+                output=out,
+                bias=self.bias,
+                transpose_weight=True,
+                gathered_input=full_input,
+                all_gather_option=ag_option,
+            )
+            print("full_input", full_input)
+            print(ans)
+            print(ans.shape)
+            out = ans[:origin_input_M, :]
+            print("---------kernel end---------")
+            return out
 
     def mm(
         self, input_tensor: torch.Tensor, out: Optional[torch.Tensor] = None, use_custom_tensor_mananger: bool = True

@@ -22,6 +22,7 @@ class TransformerLayerInferTpl(TransformerLayerInfer):
         self.head_dim_ = -1
         self.embed_dim_ = -1
         self.enable_dp = os.getenv("ENABLE_DP", "0").upper() in ["ON", "TRUE", "1"]
+        self.enable_flux = os.getenv("ENABLE_FLUX", "0").upper() in ["ON", "TRUE", "1"]
         return
 
     def _att_norm(self, input, infer_state: InferStateInfo, layer_weight) -> torch.Tensor:
@@ -77,6 +78,8 @@ class TransformerLayerInferTpl(TransformerLayerInfer):
         o = self._get_o(o, infer_state, layer_weight)
         if self.world_size_ > 1 and not self.enable_dp:
             dist.all_reduce(o, op=dist.ReduceOp.SUM, async_op=False)
+        elif self.enable_flux:
+            torch.distributed.reduce_scatter_tensor(o, o, group=dist.group.WORLD)
         input_embding.add_(o.view(-1, self.embed_dim_))
         return
 
@@ -85,7 +88,20 @@ class TransformerLayerInferTpl(TransformerLayerInfer):
         ffn_out = self._ffn(input1, infer_state, layer_weight)
         input1 = None
         if self.world_size_ > 1 and not self.enable_dp:
-            dist.all_reduce(ffn_out, op=dist.ReduceOp.SUM, async_op=False)
+            if (
+                not self.enable_flux
+                or self.layer_num_ == self.network_config_["num_hidden_layers"] - 1
+                or ffn_out.size(0) == 1
+            ):
+                dist.all_reduce(ffn_out, op=dist.ReduceOp.SUM, async_op=False)
+            # else:
+            #     split_M = ffn_out.size(0)
+            #     tp_M_start_index = split_M * self.tp_rank_
+            #     tp_M_end_index = split_M * (self.tp_rank_ + 1)
+            #     if tp_M_end_index > input_embdings.size(0):
+            #         tp_M_end_index = input_embdings.size(0)
+            #     input_embdings[tp_M_start_index:tp_M_end_index, :] = ffn_out[:tp_M_end_index - tp_M_start_index, :]
+            #     return
         input_embdings.add_(ffn_out.view(-1, self.embed_dim_))
         return
 
@@ -108,12 +124,48 @@ class TransformerLayerInferTpl(TransformerLayerInfer):
         ffn_out = self._ffn(input1, infer_state, layer_weight)
         input1 = None
         if self.world_size_ > 1 and not self.enable_dp:
-            dist.all_reduce(ffn_out, op=dist.ReduceOp.SUM, async_op=False)
+            if (
+                not self.enable_flux
+                or self.layer_num_ == self.network_config_["num_hidden_layers"] - 1
+                or ffn_out.size(0) == 1
+            ):
+                dist.all_reduce(ffn_out, op=dist.ReduceOp.SUM, async_op=False)
+            # else:
+            #     split_M = ffn_out.size(0)
+            #     tp_M_start_index = split_M * self.tp_rank_
+            #     tp_M_end_index = split_M * (self.tp_rank_ + 1)
+            #     if tp_M_end_index > input_embdings.size(0):
+            #         tp_M_end_index = input_embdings.size(0)
+            #     input_embdings[tp_M_start_index:tp_M_end_index, :] = ffn_out[:tp_M_end_index - tp_M_start_index, :]
+            #     return
         input_embdings.add_(ffn_out.view(-1, self.embed_dim_))
         return
 
     def context_forward(self, input_embdings, infer_state: InferStateInfo, layer_weight):
         self._context_attention(input_embdings, infer_state, layer_weight=layer_weight)
+        if self.enable_flux and self.layer_num_ != 0 and input_embdings.size(0) > 1:
+            padded_input = None
+            if input_embdings.size(0) % self.world_size_ != 0:
+                pad_size = (self.world_size_ - input_embdings.size(0) % self.world_size_) % self.world_size_
+                pad_tensor = torch.zeros(
+                    pad_size, input_embdings.size(1), dtype=input_embdings.dtype, device=input_embdings.device
+                )
+                padded_input = torch.cat([input_embdings, pad_tensor], dim=0)
+            else:
+                padded_input = input_embdings
+
+            full_input = torch.empty_like(padded_input)
+            local_M_size = padded_input.size(0) // self.world_size_
+            local_M_start_index = local_M_size * self.tp_rank_
+            local_M_end_index = local_M_size * (self.tp_rank_ + 1)
+            if local_M_end_index > input_embdings.size(0):
+                local_M_end_index = input_embdings.size(0)
+            torch.distributed.all_gather_into_tensor(
+                full_input, padded_input[local_M_start_index:local_M_end_index], group=torch.distributed.group.WORLD
+            )
+            input_embdings = full_input[: input_embdings.size(0)]
+        if self.layer_num_ <= 1:
+            torch.save(input_embdings, f"tmp/output_te_kernel_{self.tp_rank_}_{self.layer_num_}.pt")
         self._context_ffn(input_embdings, infer_state, layer_weight)
         return input_embdings
 

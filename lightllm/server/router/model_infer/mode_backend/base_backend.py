@@ -88,7 +88,7 @@ class ModeBackend:
             assert self.dp_size == self.world_size, "Currently only self-sustaining dp_size == tp_size"
             os.environ["ENABLE_DP"] = "1"
 
-        init_distributed_env(kvargs)
+        tp_group = init_distributed_env(kvargs)
         self.init_rank_infos()
 
         self.shared_token_load = TokenLoad(f"{get_unique_server_name()}_shared_token_load", self.dp_size_in_node)
@@ -136,6 +136,7 @@ class ModeBackend:
             "quant_type": kvargs.get("quant_type", None),
             "quant_cfg": kvargs.get("quant_cfg", None),
             "run_mode": self.run_mode,
+            "tp_group": tp_group,
         }
 
         try:

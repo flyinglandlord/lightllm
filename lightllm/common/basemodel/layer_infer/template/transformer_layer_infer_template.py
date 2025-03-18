@@ -158,18 +158,35 @@ class TransformerLayerInferTpl(TransformerLayerInfer):
             local_M_size = padded_input.size(0) // self.world_size_
             local_M_start_index = local_M_size * self.tp_rank_
             local_M_end_index = local_M_size * (self.tp_rank_ + 1)
-            if local_M_end_index > input_embdings.size(0):
-                local_M_end_index = input_embdings.size(0)
             torch.distributed.all_gather_into_tensor(
                 full_input, padded_input[local_M_start_index:local_M_end_index], group=torch.distributed.group.WORLD
             )
             input_embdings = full_input[: input_embdings.size(0)]
-        if self.layer_num_ <= 1:
-            torch.save(input_embdings, f"tmp/output_te_kernel_{self.tp_rank_}_{self.layer_num_}.pt")
+        # if self.layer_num_ <= 1:
+        #     torch.save(input_embdings, f"tmp/output_te_kernel_{self.tp_rank_}_{self.layer_num_}.pt")
         self._context_ffn(input_embdings, infer_state, layer_weight)
         return input_embdings
 
     def token_forward(self, input_embdings, infer_state: InferStateInfo, layer_weight):
         self._token_attention(input_embdings, infer_state, layer_weight=layer_weight)
+        if self.enable_flux and self.layer_num_ != 0 and input_embdings.size(0) > 1:
+            padded_input = None
+            if input_embdings.size(0) % self.world_size_ != 0:
+                pad_size = (self.world_size_ - input_embdings.size(0) % self.world_size_) % self.world_size_
+                pad_tensor = torch.zeros(
+                    pad_size, input_embdings.size(1), dtype=input_embdings.dtype, device=input_embdings.device
+                )
+                padded_input = torch.cat([input_embdings, pad_tensor], dim=0)
+            else:
+                padded_input = input_embdings
+
+            full_input = torch.empty_like(padded_input)
+            local_M_size = padded_input.size(0) // self.world_size_
+            local_M_start_index = local_M_size * self.tp_rank_
+            local_M_end_index = local_M_size * (self.tp_rank_ + 1)
+            torch.distributed.all_gather_into_tensor(
+                full_input, padded_input[local_M_start_index:local_M_end_index], group=torch.distributed.group.WORLD
+            )
+            input_embdings = full_input[: input_embdings.size(0)]
         self._token_ffn(input_embdings, infer_state, layer_weight)
         return input_embdings

@@ -24,7 +24,7 @@ headers = {"Content-Type": "application/json"}
 
 for i in range(1):
     data = {
-        "inputs": "San Francisco is a",
+        "inputs": "San Francisco is a beautiful city.",
         # 'temperature': 0.1,
         "parameters": {
             "do_sample": False,

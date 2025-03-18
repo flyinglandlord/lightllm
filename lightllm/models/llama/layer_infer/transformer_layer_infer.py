@@ -136,34 +136,34 @@ class LlamaTransformerLayerInfer(TransformerLayerInferTpl):
             kv = layer_weight.kv_proj.flux_ag_gemm(input, tp_group=self.tp_group_)
             cache_kv = kv.view(-1, (self.tp_k_head_num_ + self.tp_v_head_num_), self.head_dim_)
 
-            full_input = torch.empty_like(input, device=input.device, dtype=input.dtype)
-            local_M_size = (input.size(0) + self.world_size_ - 1) // self.world_size_
-            local_M_start_index = local_M_size * self.tp_rank_
-            local_M_end_index = local_M_size * (self.tp_rank_ + 1)
-            if local_M_end_index > input.size(0):
-                local_M_end_index = input.size(0)
-            torch.distributed.all_gather_into_tensor(
-                full_input, input[local_M_start_index:local_M_end_index], group=torch.distributed.group.WORLD
-            )
+            # full_input = torch.empty_like(input, device=input.device, dtype=input.dtype)
+            # local_M_size = (input.size(0) + self.world_size_ - 1) // self.world_size_
+            # local_M_start_index = local_M_size * self.tp_rank_
+            # local_M_end_index = local_M_size * (self.tp_rank_ + 1)
+            # if local_M_end_index > input.size(0):
+            #     local_M_end_index = input.size(0)
+            # torch.distributed.all_gather_into_tensor(
+            #     full_input, input[local_M_start_index:local_M_end_index], group=torch.distributed.group.WORLD
+            # )
 
-            print("full input", full_input)
-            print("input", input)
-            std_q = layer_weight.q_proj.mm(full_input)
-            std_kv = layer_weight.kv_proj.mm(full_input)
-            try:
-                assert torch.allclose(std_q, q, atol=1e-2, rtol=1e-2), f"❌ te kernel q {q} not equal to std q {std_q}"
-            except Exception as e:
-                torch.save(std_q, f"tmp/std_q_{self.tp_rank_}.pt")
-                torch.save(q, f"tmp/te_q_{self.tp_rank_}.pt")
-                raise e
-            try:
-                assert torch.allclose(
-                    std_kv, kv, atol=1e-2, rtol=1e-2
-                ), f"❌ te kernel kv {kv} not equal to std kv {std_kv}"
-            except Exception as e:
-                torch.save(std_kv, f"tmp/std_kv_{self.tp_rank_}.pt")
-                torch.save(kv, f"tmp/te_kv_{self.tp_rank_}.pt")
-                raise e
+            # print("full input", full_input)
+            # print("input", input)
+            # std_q = layer_weight.q_proj.mm(full_input)
+            # std_kv = layer_weight.kv_proj.mm(full_input)
+            # try:
+            #     assert torch.allclose(std_q, q, atol=1e-2, rtol=1e-2), f"❌ te kernel q {q} not equal to std q {std_q}"
+            # except Exception as e:
+            #     torch.save(std_q, f"tmp/std_q_{self.tp_rank_}.pt")
+            #     torch.save(q, f"tmp/te_q_{self.tp_rank_}.pt")
+            #     raise e
+            # try:
+            #     assert torch.allclose(
+            #         std_kv, kv, atol=1e-2, rtol=1e-2
+            #     ), f"❌ te kernel kv {kv} not equal to std kv {std_kv}"
+            # except Exception as e:
+            #     torch.save(std_kv, f"tmp/std_kv_{self.tp_rank_}.pt")
+            #     torch.save(kv, f"tmp/te_kv_{self.tp_rank_}.pt")
+            #     raise e
         rotary_emb_fwd(
             q.view(-1, self.tp_q_head_num_, self.head_dim_),
             cache_kv[:, 0 : self.tp_k_head_num_, :],
@@ -273,13 +273,13 @@ class LlamaTransformerLayerInfer(TransformerLayerInferTpl):
             ffn2_out = layer_weight.down_proj.mm(ffn1_out)
         else:
             ffn2_out, kernel_res = layer_weight.down_proj.flux_gemm_rs(ffn1_out, tp_group=self.tp_group_)
-            std_ffn2_out = layer_weight.down_proj.mm(ffn1_out)
-            torch.distributed.all_reduce(std_ffn2_out, op=dist.ReduceOp.SUM, async_op=False)
-            te_ffn2_out = torch.empty_like(std_ffn2_out)
-            torch.distributed.all_gather_into_tensor(te_ffn2_out, kernel_res, group=torch.distributed.group.WORLD)
-            assert torch.allclose(
-                std_ffn2_out, te_ffn2_out, atol=1e-2, rtol=1e-2
-            ), f"te kernel ffn2_out {te_ffn2_out} not equal to std ffn2_out {std_ffn2_out}"
+            # std_ffn2_out = layer_weight.down_proj.mm(ffn1_out)
+            # torch.distributed.all_reduce(std_ffn2_out, op=dist.ReduceOp.SUM, async_op=False)
+            # te_ffn2_out = torch.empty_like(std_ffn2_out)
+            # torch.distributed.all_gather_into_tensor(te_ffn2_out, kernel_res, group=torch.distributed.group.WORLD)
+            # assert torch.allclose(
+            #     std_ffn2_out, te_ffn2_out, atol=1e-2, rtol=1e-2
+            # ), f"te kernel ffn2_out {te_ffn2_out} not equal to std ffn2_out {std_ffn2_out}"
 
         ffn1_out = None
         # print("te kernel", ffn2_out)

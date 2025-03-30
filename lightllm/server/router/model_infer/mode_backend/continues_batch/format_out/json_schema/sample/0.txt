@@ -1,0 +1,1 @@
+{"policyholder":{"name":"Emily Carter","address":"254 Ocean View Lane, Coastal City, CC 90210","phone":"(555) 123-4567"},"coverageDetails":[{"coverageType":"Homeowners","coverageAmount":350000},{"coverageType":"Auto Collision","coverageAmount":50000},{"coverageType":"Personal Liability","coverageAmount":100000}],"premium":{"amount":2500,"frequency":"semi-annually"}}

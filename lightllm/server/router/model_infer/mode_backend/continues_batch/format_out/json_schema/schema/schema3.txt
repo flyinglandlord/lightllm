@@ -1,0 +1,1 @@
+{"title": "ApparelItemQuery", "type": "object", "properties": {"itemID": {"title": "ItemID", "type": "string"}, "itemName": {"title": "ItemName", "type": "string"}, "size": {"title": "Size", "type": "string"}, "color": {"title": "Color", "type": "string"}, "price": {"title": "Price", "type": "number"}}, "required": ["itemID", "itemName", "size", "color", "price"]}

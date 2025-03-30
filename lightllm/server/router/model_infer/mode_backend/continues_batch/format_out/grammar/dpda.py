@@ -652,6 +652,7 @@ class DPDA:
         stack = [0]
         current_node_id = 0
         for t in input_str:
+            print(t, end='')
             t = T(t)
             input_pop_edge1 = self.one_step_node_id_to_dpda_edges[current_node_id].lookah_pop_to_edge
             input_pop_edge2 = self.direct_jump_node_id_to_dpda_edges[current_node_id].lookah_pop_to_edge
@@ -688,7 +689,7 @@ class DPDA:
                     find = True
                     find_count += 1
                     break
-            assert find_count == 1, f"find_count {find_count}"
+            assert find_count == 1, f"find_count {find_count}, current_str: {t}"
             if not find:
                 print(stack)
                 raise Exception("not accept")

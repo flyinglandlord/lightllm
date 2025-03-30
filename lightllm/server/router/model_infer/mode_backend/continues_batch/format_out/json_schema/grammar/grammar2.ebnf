@@ -1,0 +1,14 @@
+driverName-kv ::= "\"driverName\"" space ":" space string
+drivingHistory ::= "{" space  (drivingHistory-incidents-kv drivingHistory-incidents-rest | drivingHistory-yearsLicensed-kv )? "}" space
+drivingHistory-incidents ::= "[" space (string ("," space string)*)? "]" space
+drivingHistory-incidents-kv ::= "\"incidents\"" space ":" space drivingHistory-incidents
+drivingHistory-incidents-rest ::= ( "," space drivingHistory-yearsLicensed-kv )?
+drivingHistory-kv ::= "\"drivingHistory\"" space ":" space drivingHistory
+drivingHistory-yearsLicensed-kv ::= "\"yearsLicensed\"" space ":" space integer
+integer ::= ("-"? ([0-9] | [1-9] [0-9]*)) space
+root ::= "{" space driverName-kv "," space vehicleMake-kv "," space vehicleModel-kv "," space yearOfManufacture-kv "," space drivingHistory-kv "}" space
+space ::= ([ĊĠ     ] space)?
+string ::= "\"" [ĠĊ !#-\[\]-~]* "\"" space
+vehicleMake-kv ::= "\"vehicleMake\"" space ":" space string
+vehicleModel-kv ::= "\"vehicleModel\"" space ":" space string
+yearOfManufacture-kv ::= "\"yearOfManufacture\"" space ":" space integer

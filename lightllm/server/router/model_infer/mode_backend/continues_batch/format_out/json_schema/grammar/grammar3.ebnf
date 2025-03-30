@@ -1,0 +1,11 @@
+color-kv ::= "\"color\"" space ":" space string
+decimal-part ::= [0-9]+
+integral-part ::= ([0-9] | [1-9] [0-9]*)
+itemID-kv ::= "\"itemID\"" space ":" space string
+itemName-kv ::= "\"itemName\"" space ":" space string
+number ::= ("-"? integral-part) ("." decimal-part)? ([eE] [-+]? integral-part)? space
+price-kv ::= "\"price\"" space ":" space number
+root ::= "{" space itemID-kv "," space itemName-kv "," space size-kv "," space color-kv "," space price-kv "}" space
+size-kv ::= "\"size\"" space ":" space string
+space ::= ([ĊĠ     ] space)?
+string ::= "\"" [ĠĊ !#-\[\]-~]* "\"" space

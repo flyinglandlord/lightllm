@@ -1,0 +1,11 @@
+root ::= "{" space ssid-kv "," space securityProtocol-kv "," space bandwidth-kv "}" space
+
+bandwidth-kv ::= "\"bandwidth\"" space ":" space string
+
+securityProtocol-kv ::= "\"securityProtocol\"" space ":" space string
+
+ssid-kv ::= "\"ssid\"" space ":" space string
+
+string ::= "\"" [ĠĊ !#-\[\]-~]* "\"" space
+
+space ::= ([ĊĠ     ] space)?

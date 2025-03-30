@@ -1,0 +1,8 @@
+data ::= integer | string | null | data-3
+data-3 ::= "[" space (integer ("," space integer)*)? "]" space
+data-kv ::= "\"data\"" space ":" space data
+integer ::= ("-"? ([0-9] | [1-9] [0-9]*))
+null ::= "null" space
+root ::= "{" space  (data-kv )? "}" space
+space ::= ([ĊĠ     ] space)?
+string ::= "\"" [ĠĊ !#-\[\]-~]* "\"" space

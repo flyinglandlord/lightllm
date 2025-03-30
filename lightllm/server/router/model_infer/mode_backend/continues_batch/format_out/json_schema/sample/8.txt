@@ -1,0 +1,1 @@
+{"reviewId":"RVW000112233","productId":"EARBUDS1234","reviewer":{"userId":"USER5678","name":"Alex Smith"},"rating":4,"comments":"The earbuds have great sound quality and the battery life is impressive. However, I experienced some discomfort after wearing them for extended periods."}

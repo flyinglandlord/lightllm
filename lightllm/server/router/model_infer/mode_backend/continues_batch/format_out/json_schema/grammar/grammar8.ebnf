@@ -1,0 +1,12 @@
+comments-kv ::= "\"comments\"" space ":" space string
+productId-kv ::= "\"productId\"" space ":" space string
+rating ::= ([1-5]) space
+rating-kv ::= "\"rating\"" space ":" space rating
+reviewId-kv ::= "\"reviewId\"" space ":" space string
+reviewer ::= "{" space reviewer-userId-kv "," space reviewer-name-kv "}" space
+reviewer-kv ::= "\"reviewer\"" space ":" space reviewer
+reviewer-name-kv ::= "\"name\"" space ":" space string
+reviewer-userId-kv ::= "\"userId\"" space ":" space string
+root ::= "{" space reviewId-kv "," space productId-kv "," space reviewer-kv "," space rating-kv "," space comments-kv "}" space
+space ::= ([ĊĠ     ] space)?
+string ::= "\"" [ĠĊ !#-\[\]-~]* "\"" space

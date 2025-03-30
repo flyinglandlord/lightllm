@@ -1,0 +1,1 @@
+{"reportID":"BUG-001122","description":"The calendar view crashes when switching from week to month view.","severity":"high","status":"open"}

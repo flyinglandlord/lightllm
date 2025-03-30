@@ -1,0 +1,6 @@
+root ::= "{" space seatNumber-kv "," space serviceType-kv ( "," space ( specialInstructions-kv ) )? "}" space
+seatNumber-kv ::= "\"seatNumber\"" space ":" space string
+serviceType-kv ::= "\"serviceType\"" space ":" space string
+space ::= ([ĊĠ     ] space)?
+specialInstructions-kv ::= "\"specialInstructions\"" space ":" space string
+string ::= "\"" [ĠĊ !#-\[\]-~]* "\"" space

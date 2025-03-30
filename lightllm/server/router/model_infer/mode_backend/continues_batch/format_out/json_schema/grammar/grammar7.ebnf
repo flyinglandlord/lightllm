@@ -1,0 +1,15 @@
+FitnessTracking ::= "{" space FitnessTracking-current-health-status-kv "," space FitnessTracking-health-goals-kv "," space FitnessTracking-recommended-routines-kv "}" space
+FitnessTracking-current-health-status ::= "{" space FitnessTracking-current-health-status-weight-kv "," space FitnessTracking-current-health-status-height-kv "," space FitnessTracking-current-health-status-heart-rate-kv "}" space
+FitnessTracking-current-health-status-heart-rate-kv ::= "\"heart_rate\"" space ":" space number
+FitnessTracking-current-health-status-height-kv ::= "\"height\"" space ":" space number
+FitnessTracking-current-health-status-kv ::= "\"current_health_status\"" space ":" space FitnessTracking-current-health-status
+FitnessTracking-current-health-status-weight-kv ::= "\"weight\"" space ":" space number
+FitnessTracking-health-goals ::= "[" space (string ("," space string)*)? "]" space
+FitnessTracking-health-goals-kv ::= "\"health_goals\"" space ":" space FitnessTracking-health-goals
+FitnessTracking-kv ::= "\"FitnessTracking\"" space ":" space FitnessTracking
+FitnessTracking-recommended-routines ::= "[" space (string ("," space string)*)? "]" space
+FitnessTracking-recommended-routines-kv ::= "\"recommended_routines\"" space ":" space FitnessTracking-recommended-routines
+number ::= ("-"? ([0-9] | [1-9] [0-9]*)) space
+root ::= "{" space  (FitnessTracking-kv )? "}" space
+space ::= ([ĊĠ     ] space)?
+string ::= "\"" [ĠĊ !#-\[\]-~]* "\"" space

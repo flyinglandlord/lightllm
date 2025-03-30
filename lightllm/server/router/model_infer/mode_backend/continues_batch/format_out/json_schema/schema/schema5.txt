@@ -1,0 +1,1 @@
+{"type": "object", "properties": {"HomeImprovement": {"type": "object", "properties": {"room_interest": {"type": "string"}, "budget": {"type": "number"}, "preferred_style": {"type": "string"}, "project_ideas": {"type": "array", "items": {"type": "string"}}}, "required": ["room_interest", "budget", "preferred_style", "project_ideas"]}}}

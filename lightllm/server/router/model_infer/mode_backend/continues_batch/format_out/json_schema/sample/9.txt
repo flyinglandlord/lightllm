@@ -1,0 +1,1 @@
+{"seatNumber":"12A","serviceType":"vegetarian meal","specialInstructions":"gluten-free"}

@@ -1,0 +1,11 @@
+HomeImprovement ::= "{" space HomeImprovement-room-interest-kv "," space HomeImprovement-budget-kv "," space HomeImprovement-preferred-style-kv "," space HomeImprovement-project-ideas-kv "}" space
+HomeImprovement-budget-kv ::= "\"budget\"" space ":" space number
+HomeImprovement-kv ::= "\"HomeImprovement\"" space ":" space HomeImprovement
+HomeImprovement-preferred-style-kv ::= "\"preferred_style\"" space ":" space string
+HomeImprovement-project-ideas ::= "[" space (string ("," space string)*)? "]" space
+HomeImprovement-project-ideas-kv ::= "\"project_ideas\"" space ":" space HomeImprovement-project-ideas
+HomeImprovement-room-interest-kv ::= "\"room_interest\"" space ":" space string
+number ::= ("-"? ([0-9] | [1-9] [0-9]*)) ("." [0-9]+)? ([eE] [-+]? [0-9]+)? space
+root ::= "{" space  (HomeImprovement-kv )? "}" space
+space ::= ([ĊĠ     ] space)?
+string ::= "\"" [ĠĊ !#-\[\]-~]* "\"" space

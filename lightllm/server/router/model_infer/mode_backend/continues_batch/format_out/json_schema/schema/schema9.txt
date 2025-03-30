@@ -1,0 +1,1 @@
+{"properties": {"seatNumber": {"type": "string"}, "serviceType": {"type": "string"}, "specialInstructions": {"type": "string"}}, "required": ["seatNumber", "serviceType"], "type": "object"}

@@ -121,13 +121,13 @@ cot_question = [
 # inputs = tokenizer.apply_chat_template(cot_question, tokenize=False)
 inputs = [tokenizer.apply_chat_template(messages[i], tokenize=False) for i in range(len(messages))]
 
-for i in range(32):
+for i in range(16):
     data = {
         "inputs": inputs[6],
         # 'temperature': 0.1,
         "parameters": {
             "do_sample": False,
-            "guided_grammar": json_grammar_ebnf_file,
+            # "guided_grammar": json_grammar_ebnf_file,
             "max_new_tokens": 150,
         },
     }

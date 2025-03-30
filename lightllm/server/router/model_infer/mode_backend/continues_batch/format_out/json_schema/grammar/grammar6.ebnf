@@ -1,0 +1,9 @@
+description-kv ::= "\"description\"" space ":" space string
+reportID-kv ::= "\"reportID\"" space ":" space string
+root ::= "{" space reportID-kv "," space description-kv "," space severity-kv "," space status-kv "}" space
+severity ::= ("\"low\"" | "\"medium\"" | "\"high\"" | "\"critical\"") space
+severity-kv ::= "\"severity\"" space ":" space severity
+space ::= ([ĊĠ     ] space)?
+status ::= ("\"open\"" | "\"in progress\"" | "\"resolved\"" | "\"closed\"") space
+status-kv ::= "\"status\"" space ":" space status
+string ::= "\"" [ĠĊ !#-\[\]-~]* "\"" space

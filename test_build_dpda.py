@@ -37,6 +37,7 @@ if __name__ == '__main__':
     dpda_struct.dpda.remove_no_input_node_to_edges()
     print(f"preprocess dpda cost: {time.time() - start_time}")
 
+    start_time = time.time()
     (
         dpda_struct.shift_table,
         dpda_struct.edge_num_table,
@@ -45,6 +46,7 @@ if __name__ == '__main__':
         dpda_struct.dest_table,
         dpda_struct.symbol_to_id,
     ) = dpda_struct.dpda.dump_to_tensor()
+    print(f"save dpda to tensor cost: {time.time() - start_time}")
 
     start_time = time.time()
     vocab = tokenizer.get_vocab()

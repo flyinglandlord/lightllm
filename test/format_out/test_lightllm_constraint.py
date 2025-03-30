@@ -25,7 +25,7 @@ class RequestThread(threading.Thread):
             print("Error:", response.status_code, response.text)
 
 
-url = "http://localhost:8888/generate"
+url = "http://localhost:9999/generate"
 headers = {"Content-Type": "application/json"}
 json_grammar_ebnf_str = r"""
 root ::= basic_array | basic_object
@@ -115,13 +115,13 @@ for i in range(80):
     messages.append([{"role": "user", "content": prompt[i]}])
 
 cot_question = [
-    {"role": "system", "content": cot_system_prompt},
+    # {"role": "system", "content": cot_system_prompt},
     {"role": "user", "content": "Question: 8.11 and 8.9 -- which is bigger? Answer:"}]
 
 # inputs = tokenizer.apply_chat_template(cot_question, tokenize=False)
-inputs = [tokenizer.apply_chat_template(messages[i], tokenize=False) for i in range(len(messages))]
+inputs = [tokenizer.apply_chat_template(cot_question, tokenize=False) for i in range(len(messages))]
 
-for i in range(16):
+for i in range(512):
     data = {
         "inputs": inputs[6],
         # 'temperature': 0.1,

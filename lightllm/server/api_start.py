@@ -96,7 +96,7 @@ def normal_or_p_d_start(args):
 
     check_shm_size()
 
-    if args.enable_shm_warning:
+    if not args.disable_shm_warning:
         import threading
 
         def periodic_shm_warning():

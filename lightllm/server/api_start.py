@@ -16,39 +16,9 @@ from .detokenization.manager import start_detokenization_process
 from .router.manager import start_router_process
 from lightllm.utils.process_check import is_process_active
 from lightllm.utils.multinode_utils import send_and_receive_node_ip
+from lightllm.utils.shm_size_check import check_shm_size, start_shm_size_warning_thread
 
 logger = init_logger(__name__)
-
-
-def get_shm_size_gb():
-    """
-    获取 /dev/shm 的总大小（以GB为单位）。
-    """
-    try:
-        shm_path = "/dev/shm"
-        if not os.path.exists(shm_path):
-            logger.error(f"{shm_path} not exist, this may indicate a system or Docker configuration anomaly.")
-            return 0
-
-        # shutil.disk_usage 返回 (total, used, free)
-        total_bytes = shutil.disk_usage(shm_path).total
-        total_gb = total_bytes / (1024 ** 3)
-        return total_gb
-    except Exception as e:
-        logger.error(f"Error getting /dev/shm size: {e}")
-        return 0
-
-
-def check_shm_size():
-    RED = "\033[91m"
-    GREEN = "\033[92m"
-    ENDC = "\033[0m"
-    shm_size = get_shm_size_gb()
-    required_size = 128  # 128G
-    if shm_size < required_size:
-        logger.warning(f"{RED}Available shm size is less than 128G: {shm_size:.2f}G{ENDC}")
-    else:
-        logger.info(f"{GREEN}/dev/shm available space is sufficient ({shm_size:.2f} GB >= {required_size} GB).{ENDC}")
 
 
 def setup_signal_handlers(http_server_process, process_manager):
@@ -94,18 +64,15 @@ def setup_signal_handlers(http_server_process, process_manager):
 def normal_or_p_d_start(args):
     set_unique_server_name(args)
 
-    check_shm_size()
-
-    if not args.disable_shm_warning:
-        import threading
-
-        def periodic_shm_warning():
-            while True:
-                check_shm_size()
-                time.sleep(120)  # 每 120 秒打印一次警告日志
-
-        shm_warning_thread = threading.Thread(target=periodic_shm_warning, daemon=True)
-        shm_warning_thread.start()
+    shm_size, require_shm_size, is_shm_sufficient = check_shm_size(args)
+    if not args.disable_shm_warning and not is_shm_sufficient:
+        start_shm_size_warning_thread(shm_size, require_shm_size)
+    else:
+        logger.info(
+            f"SHM check: Available={shm_size:.2f} GB,",
+            f"Required={require_shm_size:.2f} GB.",
+            f"Sufficient: {is_shm_sufficient}",
+        )
 
     if args.enable_mps:
         from lightllm.utils.device_utils import enable_mps

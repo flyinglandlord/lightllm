@@ -21,7 +21,7 @@ def get_hidden_size(model_path: str):
     except:
         # for some multimodal model
         try:
-            hidden_size = config_json.get("llm_config", {}).get("hidden_size")
+            hidden_size = config_json["llm_config"]["hidden_size"]
         except:
             hidden_size = config_json.get("text_config", {}).get("hidden_size")
     if not isinstance(hidden_size, int):

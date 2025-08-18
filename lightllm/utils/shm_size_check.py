@@ -3,22 +3,18 @@ import os
 import shutil
 import time
 import threading
-import psutil
-import signal
-from lightllm.server.core.objs.out_token_circlequeue import LIGHTLLM_OUT_TOKEN_QUEUE_SIZE, LIGHTLLM_TOKEN_MAX_BYTES
 from lightllm.server.core.objs.req import ChunkedPrefillReq, TokenHealingReq
 from lightllm.server.multimodal_params import ImageItem
 from lightllm.server.tokenizer import get_tokenizer
 from lightllm.utils.config_utils import get_hidden_size
 from lightllm.utils.log_utils import init_logger
-from transformers import AutoTokenizer
 
 logger = init_logger(__name__)
 
 
 def check_recommended_shm_size(args):
     shm_size, recommended_shm_size, is_shm_sufficient = _check_shm_size(args)
-    if not args.disable_shm_warning and not is_shm_sufficient:
+    if not is_shm_sufficient:
         _start_shm_size_warning_thread(shm_size, recommended_shm_size)
     else:
         logger.info(
@@ -32,15 +28,27 @@ def _check_shm_size(args):
     RED = "\033[91m"
     ENDC = "\033[0m"
     shm_size = _get_system_shm_size_gb()
-    required_size = _get_recommended_shm_size_gb(args)  # 128G
+    required_size = _get_recommended_shm_size_gb(args)
     if shm_size < required_size:
-        logger.warning(f"{RED}Available shm size is less than 128G: {shm_size:.2f}G{ENDC}")
+        logger.warning(f"{RED}Available shm size is less than {shm_size:.2f}G{ENDC}")
         return shm_size, required_size, False
     else:  # shm_size >= required_size
         return shm_size, required_size, True
 
 
 def _start_shm_size_warning_thread(shm_size, required_shm_size):
+    def _periodic_shm_warning(shm_size, required_shm_size):
+        RED = "\033[91m"
+        ENDC = "\033[0m"
+        while True:
+            logger.warning(
+                f"{RED}Insufficient shared memory (SHM) available."
+                f"Required: {required_shm_size:.2f}G, Available: {shm_size:.2f}G.\n"
+                "If running in Docker, you can increase SHM size with the `--shm-size` flag, "
+                f"like so: `docker run --shm-size=30g [your_image]`{ENDC}",
+            )
+            time.sleep(120)  # 每 120 秒打印一次警告日志
+
     shm_warning_thread = threading.Thread(
         target=_periodic_shm_warning,
         args=(
@@ -125,16 +133,3 @@ def _get_recommended_shm_size_gb(args, max_image_resolution=(3940, 2160), dtype_
         total_recommended_shm_size_gb = total_recommended_shm_size_gb / (1024 ** 3) + 2
 
     return total_recommended_shm_size_gb
-
-
-def _periodic_shm_warning(shm_size, required_shm_size):
-    RED = "\033[91m"
-    ENDC = "\033[0m"
-    while True:
-        logger.warning(
-            f"{RED}Insufficient shared memory (SHM) available."
-            f"Required: {required_shm_size:.2f}G, Available: {shm_size:.2f}G.\n"
-            "If running in Docker, you can increase SHM size with the `--shm-size` flag, "
-            f"like so: `docker run --shm-size=30g [your_image]`{ENDC}",
-        )
-        time.sleep(120)  # 每 120 秒打印一次警告日志

@@ -188,7 +188,13 @@ def make_argument_parser() -> argparse.ArgumentParser:
     parser.add_argument("--disable_log_stats", action="store_true", help="disable logging throughput stats.")
     parser.add_argument("--log_stats_interval", type=int, default=10, help="log stats interval in second.")
     parser.add_argument(
-        "--disable-shm-warning", action="store_true", default=False, help="Disable periodic shm warning logs"
+        "--disable_shm_warning",
+        action="store_true",
+        default=False,
+        help="""Disable periodic shared memory (/dev/shm) warning logs.
+        Our system requires sufficient available shared memory in /dev/shm,
+        so a monitoring thread is enabled to check if the capacity is adequate.
+        This setting allows you to turn off these warning checks.""",
     )
 
     parser.add_argument("--router_token_ratio", type=float, default=0.0, help="token ratio to control router dispatch")

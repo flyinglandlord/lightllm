@@ -4,7 +4,6 @@ import time
 import uuid
 import subprocess
 import signal
-import shutil
 from lightllm.utils.net_utils import alloc_can_use_network_port, PortLocker
 from lightllm.utils.start_utils import process_manager, kill_recursive
 from .metrics.manager import start_metric_manager

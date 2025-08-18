@@ -30,7 +30,7 @@ def _check_shm_size(args):
     shm_size = _get_system_shm_size_gb()
     required_size = _get_recommended_shm_size_gb(args)
     if shm_size < required_size:
-        logger.warning(f"{RED}Available shm size is less than {shm_size:.2f}G{ENDC}")
+        logger.warning(f"{RED}Available shm size {shm_size:.2f}G is less than required_size {required_size:.2f}G{ENDC}")
         return shm_size, required_size, False
     else:  # shm_size >= required_size
         return shm_size, required_size, True
@@ -105,7 +105,9 @@ def _get_recommended_shm_size_gb(args, max_image_resolution=(3940, 2160), dtype_
 
         # 假设加载最大分辨率图片时，通过 tokenizer 得到最多的 image_tokens
         if not hasattr(tokenizer, "get_image_token_length"):
-            raise AttributeError("Tokenizer must have a 'get_image_token_length' method for multimodal models.")
+            logger.error("Tokenizer must have a 'get_image_token_length' method for multimodal models.")
+            return float("inf")
+
         fake_image_item = ImageItem(
             type="image_size",
             data=max_image_resolution,

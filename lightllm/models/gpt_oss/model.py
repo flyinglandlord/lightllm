@@ -17,29 +17,15 @@ from lightllm.utils.log_utils import init_logger
 
 logger = init_logger(__name__)
 
+
 @ModelRegistry("gpt_oss")
 class GptOssTpPartModel(LlamaTpPartModel):
     # weight class
-    pre_and_post_weight_class = LlamaPreAndPostLayerWeight
     transformer_weight_class = GptOssTransformerLayerWeight
 
     # infer class
-    pre_layer_infer_class = LlamaPreLayerInfer
-    post_layer_infer_class = LlamaPostLayerInfer
     transformer_layer_infer_class = GptOssTransformerLayerInfer
-
-    # infer state class
-    infer_state_class = LlamaInferStateInfo
 
     def __init__(self, kvargs):
         super().__init__(kvargs)
         assert get_env_start_args().enable_fa3, "For now GPT-OSS type model only support flashattention-3"
-    
-    def _init_weights(self):
-        super()._init_weights()
-        self._post_weight_process()
-
-    def _post_weight_process(self):
-        for i in range(self.config["n_layer"]):
-            self.trans_layers_weight[i]._post_weight_process()
-

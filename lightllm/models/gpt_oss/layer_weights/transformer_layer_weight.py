@@ -3,8 +3,7 @@ import torch
 import numpy as np
 
 from lightllm.common.basemodel.layer_weights.meta_weights.mm_weight.rowmm_weight import ROWMMWeight
-from lightllm.common.basemodel.layer_weights.meta_weights.norm_weight import DummyWeight
-from lightllm.models.bloom import model
+from lightllm.common.basemodel.layer_weights.meta_weights.norm_weight import NormWeight
 from lightllm.models.llama.layer_weights.transformer_layer_weight import LlamaTransformerLayerWeight
 from lightllm.utils.log_utils import init_logger
 
@@ -54,14 +53,20 @@ class GptOssTransformerLayerWeight(LlamaTransformerLayerWeight):
             tp_rank=0,
             tp_world_size=1,
         )
-        self.down_proj_bias = DummyWeight(self._down_bias_name, torch.bfloat16)
-        self.down_proj_weight_blocks = DummyWeight(self._down_blocks_name, torch.uint8)
-        self.down_proj_weight_scales = DummyWeight(self._down_scales_name, torch.uint8)
 
-        self.gate_up_proj_bias = DummyWeight(self._gate_up_bias_name, torch.bfloat16)
-        self.gate_up_proj_weight_blocks = DummyWeight(self._gate_up_blocks_name, torch.uint8)
-        self.gate_up_proj_weight_scales = DummyWeight(self._gate_up_scales_name, torch.uint8)
-        self.attn_sinks = DummyWeight(self._attn_sink_name, torch.bfloat16)
+        # Current defination of experts
+        self.down_proj_bias = NormWeight(self._down_bias_name, torch.bfloat16)
+        self.down_proj_weight_blocks = NormWeight(self._down_blocks_name, torch.uint8)
+        self.down_proj_weight_scales = NormWeight(self._down_scales_name, torch.uint8)
+
+        self.gate_up_proj_bias = NormWeight(self._gate_up_bias_name, torch.bfloat16)
+        self.gate_up_proj_weight_blocks = NormWeight(self._gate_up_blocks_name, torch.uint8)
+        self.gate_up_proj_weight_scales = NormWeight(self._gate_up_scales_name, torch.uint8)
+        self.attn_sinks = NormWeight(self._attn_sink_name, torch.bfloat16)
+
+    def load_hf_weights(self, weights):
+        super().load_hf_weights(weights)
+        self._post_weight_process()
 
     def _init_weight_names(self):
         super()._init_weight_names()
@@ -105,31 +110,34 @@ class GptOssTransformerLayerWeight(LlamaTransformerLayerWeight):
         self.moe_intermediate_size = self.network_config_["intermediate_size"]
         self.split_inter_size = self.moe_intermediate_size // self.tp_world_size_
 
-        self.down_proj_weight = self._convert_moe_packed_tensors(
-            blocks=self.down_proj_weight_blocks.weight,
-            scales=self.down_proj_weight_scales.weight,
-            dtype=torch.bfloat16,
-        )[
-            :, self.split_inter_size * self.tp_rank_ : self.split_inter_size * (self.tp_rank_ + 1), :
-        ]  # (32, 1440, 2880)
+        if self.down_proj_weight_blocks.verify_load() and self.down_proj_weight_scales.verify_load():
+            self.down_proj_weight = self._convert_moe_packed_tensors(
+                blocks=self.down_proj_weight_blocks.weight,
+                scales=self.down_proj_weight_scales.weight,
+                dtype=torch.bfloat16,
+            )[
+                :, self.split_inter_size * self.tp_rank_ : self.split_inter_size * (self.tp_rank_ + 1), :
+            ]  # (32, 1440, 2880)
 
-        self.gate_up_proj_weight = self._convert_moe_packed_tensors(
-            blocks=self.gate_up_proj_weight_blocks.weight,
-            scales=self.gate_up_proj_weight_scales.weight,
-            dtype=torch.bfloat16,
-        )  # (32, 2880, 5760)
-        expert_num = self.gate_up_proj_weight.shape[0]
-        self.gate_up_proj_weight = self.gate_up_proj_weight.reshape(expert_num, -1, 2, self.moe_intermediate_size)[
-            :, :, :, self.split_inter_size * self.tp_rank_ : self.split_inter_size * (self.tp_rank_ + 1)
-        ].reshape(
-            expert_num, -1, 2 * self.split_inter_size
-        )  # (32, 2880, 2880)
+        if self.gate_up_proj_weight_blocks.verify_load() and self.gate_up_proj_weight_scales.verify_load():
+            self.gate_up_proj_weight = self._convert_moe_packed_tensors(
+                blocks=self.gate_up_proj_weight_blocks.weight,
+                scales=self.gate_up_proj_weight_scales.weight,
+                dtype=torch.bfloat16,
+            )  # (32, 2880, 5760)
+            expert_num = self.gate_up_proj_weight.shape[0]
+            self.gate_up_proj_weight = self.gate_up_proj_weight.reshape(expert_num, -1, 2, self.moe_intermediate_size)[
+                :, :, :, self.split_inter_size * self.tp_rank_ : self.split_inter_size * (self.tp_rank_ + 1)
+            ].reshape(
+                expert_num, -1, 2 * self.split_inter_size
+            )  # (32, 2880, 2880)
 
-        self.gate_up_proj_bias.weight = self.gate_up_proj_bias.weight.reshape(
-            expert_num, 2, self.moe_intermediate_size
-        )[:, :, self.split_inter_size * self.tp_rank_ : self.split_inter_size * (self.tp_rank_ + 1)].reshape(
-            expert_num, 2 * self.split_inter_size
-        )  # (32, 2880)
+        if self.gate_up_proj_bias.verify_load():
+            self.gate_up_proj_bias.weight = self.gate_up_proj_bias.weight.reshape(
+                expert_num, 2, self.moe_intermediate_size
+            )[:, :, self.split_inter_size * self.tp_rank_ : self.split_inter_size * (self.tp_rank_ + 1)].reshape(
+                expert_num, 2 * self.split_inter_size
+            )  # (32, 2880)
 
     def _convert_moe_packed_tensors(
         self,

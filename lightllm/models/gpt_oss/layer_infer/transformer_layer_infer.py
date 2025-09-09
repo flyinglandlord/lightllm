@@ -8,7 +8,6 @@ from typing import Optional
 from lightllm.models.gpt_oss.layer_weights.transformer_layer_weight import GptOssTransformerLayerWeight
 from lightllm.models.llama.flashattention_infer_struct import FlashAttentionStateInfo
 from lightllm.models.llama.layer_infer.transformer_layer_infer import LlamaTransformerLayerInfer
-from lightllm.models.llama.layer_weights.transformer_layer_weight import LlamaTransformerLayerWeight
 from lightllm.utils.sgl_utils import flash_attn_with_kvcache
 from lightllm.utils.log_utils import init_logger
 
@@ -35,30 +34,6 @@ class GptOssTransformerLayerInfer(LlamaTransformerLayerInfer):
         self._ffn_norm = self._ffn_norm
         return
 
-    def _experts(
-        self, hidden_states: torch.Tensor, router_indices, routing_weights, layer_weight: GptOssTransformerLayerWeight
-    ):
-        batch_size = hidden_states.shape[0]
-        hidden_states = hidden_states.reshape(-1, self.hidden_size)  # (num_tokens, hidden_size)
-        num_experts = routing_weights.shape[1]
-
-        hidden_states = hidden_states.repeat(num_experts, 1)
-        hidden_states = hidden_states.view(num_experts, -1, self.hidden_size)
-        gate_up = (
-            torch.bmm(hidden_states, layer_weight.gate_up_proj_weight)
-            + layer_weight.gate_up_proj_bias.weight[..., None, :]
-        )
-        gate, up = gate_up[..., ::2], gate_up[..., 1::2]
-        gate = gate.clamp(min=None, max=self.limit)
-        up = up.clamp(min=-self.limit, max=self.limit)
-        glu = gate * torch.sigmoid(gate * self.alpha)
-        next_states = torch.bmm(((up + 1) * glu), layer_weight.down_proj_weight)
-        next_states = next_states + layer_weight.down_proj_bias.weight[..., None, :]
-        next_states = next_states.view(num_experts, batch_size, -1, self.hidden_size)
-        next_states = next_states * routing_weights.transpose(0, 1).view(num_experts, batch_size, -1)[..., None]
-        next_states = next_states.sum(dim=0)
-        return next_states
-
     def _att_norm(self, input, infer_state, layer_weight) -> torch.Tensor:
         out = self.alloc_tensor(input.shape, input.dtype)
         out = self._gpt_oss_rmsnorm(input, weight=layer_weight.att_norm_weight_.weight, eps=self.eps_)
@@ -78,8 +53,8 @@ class GptOssTransformerLayerInfer(LlamaTransformerLayerInfer):
 
     def _router(self, hidden_states, layer_weight: GptOssTransformerLayerWeight):
         hidden_states = hidden_states.reshape(-1, self.hidden_size)
-        router_logits = layer_weight.moe_gate.mm(hidden_states)  # (seq_len, num_experts)
-        router_top_value, router_indices = torch.topk(router_logits, self.top_k, dim=-1)  # (seq_len, top_k)
+        router_logits = layer_weight.moe_gate.mm(hidden_states)
+        router_top_value, router_indices = torch.topk(router_logits, self.top_k, dim=-1)
         router_top_value = torch.nn.functional.softmax(router_top_value, dim=1, dtype=router_top_value.dtype)
         router_scores = torch.zeros_like(router_logits).scatter_(1, router_indices, router_top_value)
         return router_scores, router_indices
@@ -87,10 +62,8 @@ class GptOssTransformerLayerInfer(LlamaTransformerLayerInfer):
     def _ffn(
         self, input, infer_state: FlashAttentionStateInfo, layer_weight: GptOssTransformerLayerWeight
     ) -> torch.Tensor:
-        router_scores, router_indices = self._router(input, layer_weight)  # (num_experts, seq_len)
-        routed_out = self._experts(
-            input, router_indices=router_indices, routing_weights=router_scores, layer_weight=layer_weight
-        )
+        router_scores, _ = self._router(input, layer_weight)
+        routed_out = layer_weight.experts.experts(input, routing_weights=router_scores, layer_num=self.layer_num_)
         return routed_out
 
     def _conext_sliding_attention_flashattention(

@@ -50,7 +50,7 @@ class MixtralTransformerLayerWeight(LlamaTransformerLayerWeight):
         )
 
         moe_mode = os.getenv("MOE_MODE", "TP")
-        assert moe_mode in ["EP", "TP"]
+        assert moe_mode in ["TP"], f"Unsupported moe mode: {moe_mode}"
 
         if moe_mode == "TP":
             self.experts = FusedMoeWeightTP(
@@ -66,19 +66,6 @@ class MixtralTransformerLayerWeight(LlamaTransformerLayerWeight):
                 layer_num=self.layer_num_,
                 quant_cfg=self.quant_cfg,
                 num_fused_shared_experts=0,
-            )
-        elif moe_mode == "EP":
-            self.experts = FusedMoeWeightEP(
-                gate_proj_name="w1",
-                down_proj_name="w2",
-                up_proj_name="w3",
-                e_score_correction_bias_name="",
-                weight_prefix=f"model.layers.{self.layer_num_}.block_sparse_moe.experts",
-                n_routed_experts=self.n_routed_experts,
-                data_type=self.data_type_,
-                network_config=self.network_config_,
-                layer_num=self.layer_num_,
-                quant_cfg=self.quant_cfg,
             )
         else:
             raise ValueError(f"Unsupported moe mode: {moe_mode}")

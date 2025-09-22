@@ -4,6 +4,7 @@ import asyncio
 import torch
 import pickle
 import inspect
+import setproctitle
 
 asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
 import zmq
@@ -197,10 +198,6 @@ class RouterManager:
         return
 
     def _get_schedule_time_interval(self):
-        if self.running_batch is None:
-            # 没有运行中的 batch 时，每 10ms 触发一次请求调度
-            return 0.01
-
         # dp 模式，为了更好的配平，需要更长的调度间隔，以便于能收到更多的请求
         return self.schedule_time_interval
 
@@ -511,6 +508,7 @@ class RouterManager:
 def start_router_process(args, router_port, detokenization_port, metric_port, pipe_writer):
     # 注册 graceful 退出的处理
     graceful_registry(inspect.currentframe().f_code.co_name)
+    setproctitle.setproctitle(f"lightllm::{get_unique_server_name()}::router_server")
     start_parent_check_thread()
 
     def handle_exception(loop, context):

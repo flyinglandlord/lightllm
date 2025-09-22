@@ -75,12 +75,10 @@ class MixtralTransformerLayerWeight(LlamaTransformerLayerWeight):
                 e_score_correction_bias_name="",
                 weight_prefix=f"model.layers.{self.layer_num_}.block_sparse_moe.experts",
                 n_routed_experts=self.n_routed_experts,
-                split_inter_size=split_inter_size,
                 data_type=self.data_type_,
                 network_config=self.network_config_,
                 layer_num=self.layer_num_,
                 quant_cfg=self.quant_cfg,
-                num_fused_shared_experts=0,
             )
         else:
             raise ValueError(f"Unsupported moe mode: {moe_mode}")

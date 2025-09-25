@@ -26,7 +26,7 @@ class GptOssTransformerLayerInfer(LlamaTransformerLayerInfer):
 
     def _bind_attention(self):
         self._copy_kv_to_mem_cache = partial(LlamaTransformerLayerInfer._copy_kv_to_mem_cache_normal, self)
-        self._context_attention_kernel = self._conext_sliding_attention_flashattention
+        self._context_attention_kernel = self._context_sliding_attention_flashattention
         self._token_attention_kernel = self._token_sliding_attention_flashattention
 
     def _bind_norm(self):
@@ -51,7 +51,7 @@ class GptOssTransformerLayerInfer(LlamaTransformerLayerInfer):
         hidden_states = hidden_states * torch.rsqrt(variance + eps)
         return (weight * hidden_states).to(input_dtype)  # main diff with Llama
 
-    def _router(self, hidden_states, layer_weight: GptOssTransformerLayerWeight):
+    def _torch_router(self, hidden_states, layer_weight: GptOssTransformerLayerWeight):
         hidden_states = hidden_states.reshape(-1, self.hidden_size)
         router_logits = layer_weight.moe_gate.mm(hidden_states)
         router_top_value, router_indices = torch.topk(router_logits, self.top_k, dim=-1)
@@ -62,11 +62,21 @@ class GptOssTransformerLayerInfer(LlamaTransformerLayerInfer):
     def _ffn(
         self, input, infer_state: FlashAttentionStateInfo, layer_weight: GptOssTransformerLayerWeight
     ) -> torch.Tensor:
-        router_scores, _ = self._router(input, layer_weight)
-        routed_out = layer_weight.experts.experts(input, routing_weights=router_scores, layer_num=self.layer_num_)
-        return routed_out
+        hidden_states = input.view(-1, self.embed_dim_)
+        num_tokens, hidden_dim = hidden_states.shape
+        router_logits = layer_weight.moe_gate.mm(hidden_states)
+        hidden_states = layer_weight.experts.experts(
+            hidden_states,
+            router_logits=router_logits,
+            top_k=self.top_k,
+            renormalize=True,
+            use_grouped_topk=False,
+            topk_group=None,
+            num_expert_group=None,
+        )
+        return hidden_states.view(num_tokens, hidden_dim)
 
-    def _conext_sliding_attention_flashattention(
+    def _context_sliding_attention_flashattention(
         self, q, kv, infer_state: FlashAttentionStateInfo, layer_weight, out=None
     ):
         if self.network_config_["layer_types"][self.layer_num_] == "sliding_attention":

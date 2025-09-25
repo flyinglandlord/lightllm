@@ -93,7 +93,7 @@ class GPTOSSFusedMoeWeightTP(FusedMoeWeightTP):
                 scales=weights[self._down_scales_name],
                 dtype=torch.bfloat16,
             )[:, self.split_inter_size * self.tp_rank_ : self.split_inter_size * (self.tp_rank_ + 1), :]
-            self.w2 = (self._cuda(w2), None)
+            self.w2 = (self._cuda(w2.transpose(1, 2)), None)
 
         if (
             weights.get(self._gate_up_blocks_name, None) is not None
@@ -104,7 +104,7 @@ class GPTOSSFusedMoeWeightTP(FusedMoeWeightTP):
                 scales=weights[self._gate_up_scales_name],
                 dtype=torch.bfloat16,
             )[:, :, self.split_inter_size * self.tp_rank_ * 2 : self.split_inter_size * (self.tp_rank_ + 1) * 2]
-            self.w1 = (self._cuda(w1), None)
+            self.w1 = (self._cuda(w1.transpose(1, 2)), None)
 
         if weights.get(self._gate_up_bias_name, None) is not None:
             w1_bias = weights[self._gate_up_bias_name][
@@ -116,7 +116,52 @@ class GPTOSSFusedMoeWeightTP(FusedMoeWeightTP):
             w2_bias = weights[self._down_bias_name]
             self.w2_bias = self._cuda(w2_bias)
 
-    def experts(self, hidden_states: torch.Tensor, routing_weights, layer_num):
+    # Keep torch version code for reference
+    def _torch_router(self, router_logits, top_k, layer_num):
+        router_top_value, router_indices = torch.topk(router_logits, top_k, dim=-1)
+        router_top_value = torch.nn.functional.softmax(router_top_value, dim=1, dtype=router_top_value.dtype)
+        router_scores = torch.zeros_like(router_logits).scatter_(1, router_indices, router_top_value)
+        return router_scores, router_indices
+
+    def experts(self, input_tensor, router_logits, top_k, renormalize, use_grouped_topk, topk_group, num_expert_group):
+        from lightllm.common.fused_moe.topk_select import select_experts
+
+        topk_weights, topk_ids = select_experts(
+            hidden_states=input_tensor,
+            router_logits=router_logits,
+            correction_bias=self.e_score_correction_bias,
+            use_grouped_topk=use_grouped_topk,
+            top_k=top_k,
+            renormalize=renormalize,
+            topk_group=topk_group,
+            num_expert_group=num_expert_group,
+        )
+
+        w1, w1_scale = self.w1
+        w2, w2_scale = self.w2
+        use_fp8_w8a8 = self.quant_method is not None
+
+        from lightllm.common.fused_moe.grouped_fused_moe import fused_experts
+
+        output_tensor = fused_experts(
+            hidden_states=input_tensor.to(torch.bfloat16),
+            w1=w1,
+            w2=w2,
+            topk_weights=topk_weights,
+            topk_ids=topk_ids,
+            inplace=True,
+            use_fp8_w8a8=use_fp8_w8a8,
+            w1_scale=w1_scale,
+            w2_scale=w2_scale,
+            w1_bias=self.w1_bias,
+            w2_bias=self.w2_bias / self.tp_world_size_,
+            layout="interleaved",
+            alpha=self.alpha,
+            limit=self.limit,
+        )
+        return output_tensor
+
+    def _torch_experts(self, hidden_states: torch.Tensor, routing_weights, layer_num):
         w1, w1_scale = self.w1
         w2, w2_scale = self.w2
         assert w1_scale is None and w2_scale is None, "For now, we do not support quantized weight in GPT-OSS."
@@ -127,12 +172,12 @@ class GPTOSSFusedMoeWeightTP(FusedMoeWeightTP):
 
         hidden_states = hidden_states.repeat(num_experts, 1)
         hidden_states = hidden_states.view(num_experts, -1, self.hidden_size)
-        gate_up = torch.bmm(hidden_states, w1) + self.w1_bias[..., None, :]
+        gate_up = torch.bmm(hidden_states, w1.transpose(1, 2)) + self.w1_bias[..., None, :]
         gate, up = gate_up[..., ::2], gate_up[..., 1::2]
         gate = gate.clamp(min=None, max=self.limit)
         up = up.clamp(min=-self.limit, max=self.limit)
         glu = gate * torch.sigmoid(gate * self.alpha)
-        next_states = torch.bmm(((up + 1) * glu), w2)
+        next_states = torch.bmm(((up + 1) * glu), w2.transpose(1, 2))
         next_states = next_states + self.w2_bias[..., None, :] / self.tp_world_size_
         next_states = next_states.view(num_experts, batch_size, -1, self.hidden_size)
         next_states = next_states * routing_weights.transpose(0, 1).view(num_experts, batch_size, -1)[..., None]

@@ -394,6 +394,9 @@ def grouped_matmul_kernel(
     weight_stride_0,
     weight_stride_1,
     weight_stride_2,
+    bias_ptr,  # [expert_num, n]
+    bias_stride_0,
+    bias_stride_1,
     expert_to_weights_ptr,  # [expert_num, token_num * topk]
     expert_to_weights_stride0,
     expert_to_weights_stride1,
@@ -418,9 +421,6 @@ def grouped_matmul_kernel(
     MUL_ROUTED_WEIGHT: tl.constexpr = False,
     NEED_K_MASK: tl.constexpr = True,
     NEED_TRANS: tl.constexpr = False,
-    # Bias support
-    bias_ptr=None,  # [expert_num, n]
-    bias_stride_0=0,
     ADD_BIAS: tl.constexpr = False,
 ):
     pid = tl.program_id(0)
@@ -535,7 +535,7 @@ def grouped_matmul_kernel(
     if ADD_BIAS:
         offs_bn_bias = offs_bn  # [BLOCK_SIZE_N]
         bias_ptrs = bias_ptr + expert_id * bias_stride_0 + offs_bn_bias
-        bias_vals = tl.load(bias_ptrs, mask=offs_bn_bias < n, other=0.0)  # [BLOCK_SIZE_N]
+        bias_vals = tl.load(bias_ptrs)  # [BLOCK_SIZE_N]
         accumulator += bias_vals[None, :]  # broadcast across M dimension
 
     if MUL_ROUTED_WEIGHT:
@@ -728,6 +728,9 @@ def grouped_matmul(
         expert_weights.stride(0),
         expert_weights.stride(1),
         expert_weights.stride(2),
+        bias,
+        bias.stride(0) if bias is not None else 0,
+        bias.stride(1) if bias is not None and bias.ndim >= 2 else 0,
         expert_to_weights,
         expert_to_weights.stride(0),
         expert_to_weights.stride(1),
@@ -753,8 +756,6 @@ def grouped_matmul(
         num_warps=num_warps,
         num_stages=num_stages,
         ADD_BIAS=bias is not None,
-        bias_ptr=bias,
-        bias_stride_0=bias.stride(0) if bias is not None else 0,
     )
     return (mblocks_to_expert_id, mblocks_to_m_index, BLOCK_SIZE_M)
 

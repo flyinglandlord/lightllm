@@ -16,13 +16,14 @@ def _silu_and_mul_kernel_fast(
     stride_output_n,
     size_m,
     size_n,
+    limit: tl.constexpr,
+    alpha: tl.constexpr,
     BLOCK_M: tl.constexpr,
     BLOCK_N: tl.constexpr,
     NUM_STAGES: tl.constexpr,
     NEED_MASK: tl.constexpr,
     layout: tl.constexpr = "blocked",  # "blocked" or "interleaved"
-    limit=None,
-    alpha=None,
+    USE_LIMIT_AND_ALPHA: tl.constexpr = False,
 ):
     stride_input_m = tl.cast(stride_input_m, dtype=tl.int64)
     stride_output_m = tl.cast(stride_output_m, dtype=tl.int64)
@@ -63,27 +64,23 @@ def _silu_and_mul_kernel_fast(
             other=other,
         ).to(tl.float32)
 
-        if limit is None and alpha is None:
+        if USE_LIMIT_AND_ALPHA:
+            gate = tl.minimum(gate, limit)
+            up = tl.minimum(tl.maximum(up, -limit), limit)
+            gate = 1 / (1 + tl.exp(-gate * alpha)) * gate
+            gate = gate.to(input_ptr.dtype.element_ty)
+            tl.store(
+                output_ptr + out_offsets,
+                (up + 1) * gate,
+                mask=mask,
+            )
+        else:
             gate = gate / (1 + tl.exp(-gate))
             gate = gate.to(input_ptr.dtype.element_ty)
 
             tl.store(
                 output_ptr + out_offsets,
                 up * gate,
-                mask=mask,
-            )
-        else:
-            # clamp up and gate
-            if limit is not None:
-                gate = tl.minimum(gate, limit)
-                up = tl.minimum(tl.maximum(up, -limit), limit)
-            if alpha is None:
-                alpha = 1.0
-            gate = 1 / (1 + tl.exp(-gate * alpha)) * gate
-            gate = gate.to(input_ptr.dtype.element_ty)
-            tl.store(
-                output_ptr + out_offsets,
-                (up + 1) * gate,
                 mask=mask,
             )
 
@@ -114,6 +111,7 @@ def silu_and_mul_fwd(
 ):
     assert input.is_contiguous()
     assert output.is_contiguous()
+    assert (limit is None and alpha is None) or (limit is not None and alpha is not None)
 
     stride_input_m = input.stride(0)
     stride_input_n = input.stride(1)
@@ -132,6 +130,7 @@ def silu_and_mul_fwd(
     # limit the grid size to avoid the invalid argument error of triton
     while triton.cdiv(size_m, BLOCK_M) > 8192:
         BLOCK_M *= 2
+    USE_LIMIT_AND_ALPHA = limit is not None and alpha is not None
 
     grid = (
         triton.cdiv(size_n, BLOCK_N),
@@ -147,13 +146,14 @@ def silu_and_mul_fwd(
         stride_output_n=stride_output_n,
         size_m=size_m,
         size_n=size_n,
+        limit=limit,
+        alpha=alpha,
         BLOCK_M=BLOCK_M,
         BLOCK_N=BLOCK_N,
         NUM_STAGES=NUM_STAGES,
         NEED_MASK=NEED_MASK,
         num_warps=num_warps,
         layout=layout,
-        limit=limit,
-        alpha=alpha,
+        USE_LIMIT_AND_ALPHA=USE_LIMIT_AND_ALPHA,
     )
     return

@@ -116,26 +116,13 @@ class GPTOSSFusedMoeWeightTP(FusedMoeWeightTP):
             w2_bias = weights[self._down_bias_name]
             self.w2_bias = self._cuda(w2_bias)
 
-    # Keep torch version code for reference
-    def _torch_router(self, router_logits, top_k, layer_num):
+    def router(self, router_logits, top_k):
         router_top_value, router_indices = torch.topk(router_logits, top_k, dim=-1)
         router_top_value = torch.nn.functional.softmax(router_top_value, dim=1, dtype=router_top_value.dtype)
-        router_scores = torch.zeros_like(router_logits).scatter_(1, router_indices, router_top_value)
-        return router_scores, router_indices
+        return router_top_value, router_indices
 
     def experts(self, input_tensor, router_logits, top_k, renormalize, use_grouped_topk, topk_group, num_expert_group):
-        from lightllm.common.fused_moe.topk_select import select_experts
-
-        topk_weights, topk_ids = select_experts(
-            hidden_states=input_tensor,
-            router_logits=router_logits,
-            correction_bias=self.e_score_correction_bias,
-            use_grouped_topk=use_grouped_topk,
-            top_k=top_k,
-            renormalize=renormalize,
-            topk_group=topk_group,
-            num_expert_group=num_expert_group,
-        )
+        topk_weights, topk_ids = self.router(router_logits, top_k)
 
         w1, w1_scale = self.w1
         w2, w2_scale = self.w2
@@ -160,29 +147,6 @@ class GPTOSSFusedMoeWeightTP(FusedMoeWeightTP):
             limit=self.limit,
         )
         return output_tensor
-
-    def _torch_experts(self, hidden_states: torch.Tensor, routing_weights, layer_num):
-        w1, w1_scale = self.w1
-        w2, w2_scale = self.w2
-        assert w1_scale is None and w2_scale is None, "For now, we do not support quantized weight in GPT-OSS."
-
-        batch_size = hidden_states.shape[0]
-        hidden_states = hidden_states.reshape(-1, self.hidden_size)  # (num_tokens, hidden_size)
-        num_experts = routing_weights.shape[1]
-
-        hidden_states = hidden_states.repeat(num_experts, 1)
-        hidden_states = hidden_states.view(num_experts, -1, self.hidden_size)
-        gate_up = torch.bmm(hidden_states, w1.transpose(1, 2)) + self.w1_bias[..., None, :]
-        gate, up = gate_up[..., ::2], gate_up[..., 1::2]
-        gate = gate.clamp(min=None, max=self.limit)
-        up = up.clamp(min=-self.limit, max=self.limit)
-        glu = gate * torch.sigmoid(gate * self.alpha)
-        next_states = torch.bmm(((up + 1) * glu), w2.transpose(1, 2))
-        next_states = next_states + self.w2_bias[..., None, :] / self.tp_world_size_
-        next_states = next_states.view(num_experts, batch_size, -1, self.hidden_size)
-        next_states = next_states * routing_weights.transpose(0, 1).view(num_experts, batch_size, -1)[..., None]
-        next_states = next_states.sum(dim=0)
-        return next_states
 
     def _convert_moe_packed_tensors(
         self,

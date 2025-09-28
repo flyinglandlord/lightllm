@@ -51,14 +51,6 @@ class GptOssTransformerLayerInfer(LlamaTransformerLayerInfer):
         hidden_states = hidden_states * torch.rsqrt(variance + eps)
         return (weight * hidden_states).to(input_dtype)  # main diff with Llama
 
-    def _torch_router(self, hidden_states, layer_weight: GptOssTransformerLayerWeight):
-        hidden_states = hidden_states.reshape(-1, self.hidden_size)
-        router_logits = layer_weight.moe_gate.mm(hidden_states)
-        router_top_value, router_indices = torch.topk(router_logits, self.top_k, dim=-1)
-        router_top_value = torch.nn.functional.softmax(router_top_value, dim=1, dtype=router_top_value.dtype)
-        router_scores = torch.zeros_like(router_logits).scatter_(1, router_indices, router_top_value)
-        return router_scores, router_indices
-
     def _ffn(
         self, input, infer_state: FlashAttentionStateInfo, layer_weight: GptOssTransformerLayerWeight
     ) -> torch.Tensor:

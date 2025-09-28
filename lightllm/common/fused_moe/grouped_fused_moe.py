@@ -941,7 +941,6 @@ def inplace_fused_experts_impl_fake(
     w2_scale: Optional[torch.Tensor] = None,
     a1_scale: Optional[torch.Tensor] = None,
     a2_scale: Optional[torch.Tensor] = None,
-    activate_fn: str = "silu",
     layout: str = "blocked",
     alpha: Optional[float] = None,
     limit: Optional[float] = None,

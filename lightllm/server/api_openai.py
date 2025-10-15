@@ -223,8 +223,7 @@ async def chat_completions_impl(request: ChatCompletionRequest, raw_request: Req
             tool_calls = None
             tool_choice = request.tool_choice
             tools = request.tools
-            print(prompt)
-            print(text)
+
             if tool_choice != "none" and any([i in text for i in TOOLS_TAG_LIST]):
                 if finish_reason == "stop":
                     finish_reason = "function_call"

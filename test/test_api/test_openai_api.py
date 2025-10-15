@@ -15,7 +15,7 @@ from typing import Dict, List, Any, Optional
 class LightLLMClient:
     """LightLLM OpenAI API test cases"""
 
-    def __init__(self, base_url: str = "http://localhost:8088", model_name: str = "your_model_name"):
+    def __init__(self, base_url: str = "http://localhost:8000", model_name: str = "your_model_name"):
         self.base_url = base_url
         self.model_name = model_name
         self.headers = {"Content-Type": "application/json"}
@@ -637,20 +637,20 @@ def test_multiple_token_arrays():
 
 def main():
     # 基础功能测试
-    # test_completions()
-    # test_stream_completions()
-    # test_simple_chat()
-    # test_stream_chat()
+    test_completions()
+    test_stream_completions()
+    test_simple_chat()
+    test_stream_chat()
     test_function_call()
-    # test_stream_function_call()
+    test_stream_function_call()
 
     # 高级功能测试
-    # test_token_completions()
-    # test_multiple_prompts()
-    # test_multiple_token_arrays()
-    # test_logprobs()
-    # test_echo()
-    # test_stop_parameter()
+    test_token_completions()
+    test_multiple_prompts()
+    test_multiple_token_arrays()
+    test_logprobs()
+    test_echo()
+    test_stop_parameter()
 
 
 if __name__ == "__main__":

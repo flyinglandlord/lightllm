@@ -226,7 +226,7 @@ async def chat_completions_impl(request: ChatCompletionRequest, raw_request: Req
 
             if tool_choice != "none" and any([i in text for i in TOOLS_TAG_LIST]):
                 if finish_reason == "stop":
-                    finish_reason = "function_call"
+                    finish_reason = "tool_calls"
                 try:
                     # 为 tool_call_parser 提供默认值
                     tool_parser = getattr(g_objs.args, "tool_call_parser", None) or "llama3"
@@ -249,6 +249,8 @@ async def chat_completions_impl(request: ChatCompletionRequest, raw_request: Req
                         HTTPStatus.BAD_REQUEST,
                         "Failed to parse fc related info to json format!",
                     )
+            if finish_reason == "tool_calls":
+                text = ""
             chat_message = ChatMessage(role="assistant", content=text, tool_calls=tool_calls)
             choice = ChatCompletionResponseChoice(
                 index=i,
@@ -348,7 +350,7 @@ async def chat_completions_impl(request: ChatCompletionRequest, raw_request: Req
                     choice_data = ChatCompletionStreamResponseChoice(
                         index=0,
                         delta=DeltaMessage(role="assistant", tool_calls=[tool_call]),
-                        finish_reason="function_call",
+                        finish_reason="tool_calls",
                     )
                     chunk = ChatCompletionStreamResponse(
                         id=group_request_id,

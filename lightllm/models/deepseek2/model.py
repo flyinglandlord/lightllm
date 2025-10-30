@@ -66,6 +66,7 @@ class Deepseek2TpPartModel(LlamaTpPartModel):
             get_env_start_args().enable_flashinfer_prefill or get_env_start_args().enable_flashinfer_decode
         )
         super().__init__(kvargs)
+        self.config["n_layer"] = self.config["num_hidden_layers"]
         return
 
     def _init_inferstate_cls(self):

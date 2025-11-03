@@ -6,6 +6,7 @@ import threading
 import torch.distributed as dist
 from typing import List, Tuple, Callable, Optional
 from transformers.configuration_utils import PretrainedConfig
+import wandb
 from lightllm.utils.infer_utils import set_random_seed
 from lightllm.utils.log_utils import init_logger
 from lightllm.models import get_model
@@ -82,6 +83,7 @@ class ModeBackend:
         self.nnodes = self.args.nnodes
         self.node_rank = self.args.node_rank
         self.world_size = kvargs["world_size"]
+        self.current_device_rank_id = kvargs['rank_id']
         self.dp_size = self.args.dp
         # dp_size_in_node 计算兼容多机纯tp的运行模式，这时候 1 // 2 == 0, 需要兼容
         self.dp_size_in_node = max(1, self.dp_size // self.nnodes)
@@ -244,6 +246,12 @@ class ModeBackend:
     def init_mtp_draft_model(self, main_kvargs: dict):
         # 当前只支持 deepseekv3 模式的 mtp
         self.mtp_step = self.args.mtp_step
+        if self.current_device_rank_id == 0:
+            wandb.init(project="lightllm_mtp", name="cnn_dm-mtp-acc-length")
+            self.metric = {}
+            for i in range(1, self.mtp_step + 2):
+                self.metric[f"mtp/acc_length_{i}_count"] = 0
+                self.metric[f"mtp/acc_length_{i}_ratio"] = 0
         self.draft_models: List[Deepseek3MTPModel] = []
 
         os.environ["DISABLE_CHECK_MAX_LEN_INFER"] = "1"

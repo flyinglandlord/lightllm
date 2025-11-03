@@ -2,6 +2,8 @@ import torch
 import time
 from typing import List, Optional, Callable, Dict, Any
 from queue import Queue
+
+import wandb
 from lightllm.server.router.model_infer.mode_backend.base_backend import ModeBackend
 from lightllm.server.router.model_infer.mode_backend.overlap_events import OverlapEventPack
 from lightllm.server.router.model_infer.infer_batch import InferReq
@@ -35,6 +37,7 @@ class ChunkedPrefillBackend(ModeBackend):
 
         # 用于控制每一步是执行prefill 和 decode 还是跳过
         self.control_state_machine = ControlState()
+        self.global_step = 0
 
         # 在 mtp 模式下切换绑定的prefill 和 decode 函数
         if get_env_start_args().mtp_mode:
@@ -246,6 +249,21 @@ class ChunkedPrefillBackend(ModeBackend):
                 b_req_idx=model_input.b_req_idx,
                 b_req_mtp_start_loc=b_req_mtp_start_loc,
             )
+            # use wandb to log the different ratio of accepted tokens
+            # for mtp_size 2, only 1, 2, 3 three choice
+            if self.current_device_rank_id == 0:
+                total_acc_tokens = 0
+                for i in range(1, self.mtp_step + 2):
+                    self.metric[f"mtp/acc_length_{i}_count"] += (mtp_accept_len == i).sum().item()
+                for i in range(1, self.mtp_step + 2):
+                    total_acc_tokens += self.metric[f"mtp/acc_length_{i}_count"] * i
+                    self.metric[f"mtp/acc_length_{i}_ratio"] = self.metric[f"mtp/acc_length_{i}_count"] / sum(self.metric[f"mtp/acc_length_{i}_count"] for i in range(1, self.mtp_step + 2))
+                self.metric[f"mtp/avg_acc_length"] = total_acc_tokens / sum(self.metric[f"mtp/acc_length_{i}_count"] for i in range(1, self.mtp_step + 2))
+                # log the metric every 10 steps
+                if self.global_step % 10 == 0:
+                    wandb.log(self.metric)
+                self.global_step += 1
+            
             accepted_index_cpu = g_pin_mem_manager.async_copy_from_gpu_tensor(
                 key="accepted_index",
                 gpu_tensor=accepted_index,

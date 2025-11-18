@@ -175,11 +175,17 @@ async def chat_completions_impl(request: ChatCompletionRequest, raw_request: Req
         "best_of": request.n,
         "add_special_tokens": False,
     }
+
+    # Structured output handling
     if request.response_format:
-        obj = request.response_format.get("schema")
-        if obj:
-            # guided_json takes str instead of dict obj
-            sampling_params_dict["guided_json"] = json.dumps(obj)
+        if request.response_format.type == "json_schema":
+            obj = request.response_format.json_schema
+            if obj:
+                # guided_json takes str instead of dict obj
+                sampling_params_dict["guided_json"] = json.dumps(obj.json_schema)
+        elif request.response_format.type == "json_object":
+            sampling_params_dict["guided_grammar"] = "json"
+
     sampling_params = SamplingParams()
     sampling_params.init(tokenizer=g_objs.httpserver_manager.tokenizer, **sampling_params_dict)
 
@@ -453,6 +459,16 @@ async def completions_impl(request: CompletionRequest, raw_request: Request) -> 
         "add_special_tokens": False,
     }
 
+    # Structured output handling
+    if request.response_format:
+        if request.response_format.type == "json_schema":
+            obj = request.response_format.json_schema
+            if obj:
+                # guided_json takes str instead of dict obj
+                sampling_params_dict["guided_json"] = json.dumps(obj.json_schema)
+        elif request.response_format.type == "json_object":
+            sampling_params_dict["guided_grammar"] = "json"
+    
     sampling_params = SamplingParams()
     sampling_params.init(tokenizer=g_objs.httpserver_manager.tokenizer, **sampling_params_dict)
     sampling_params.verify()

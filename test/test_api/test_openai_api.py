@@ -647,8 +647,7 @@ def test_structured_generation():
         result = client.completions(prompt, max_tokens=150, response_format={"type": "json_object"})
         print("提示:", prompt)
         print("助手:", result["choices"][0]["text"])
-        
-        
+
         # 测试JSON Schema生成
         schema = {
             "type": "object",
@@ -674,7 +673,6 @@ def test_structured_generation():
         print("提示:", prompt)
         print("助手:", result["choices"][0]["text"])
 
-
         # 测试/v1/chat/completions端点的JSON生成
         result = client.simple_chat(
             prompt,
@@ -688,11 +686,14 @@ def test_structured_generation():
         result = client.simple_chat(
             prompt,
             max_tokens=150,
-            response_format={"type": "json_schema", "json_schema": {
-                "name": "PersonInfo",
-                "description": "包含姓名、年龄和职业的人的信息",
-                "schema": schema,
-            }},
+            response_format={
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "PersonInfo",
+                    "description": "包含姓名、年龄和职业的人的信息",
+                    "schema": schema,
+                },
+            },
         )
         print("提示:", prompt)
         print("助手:", result["choices"][0]["message"]["content"])

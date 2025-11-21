@@ -37,6 +37,7 @@ class XgrammarBackend(ChunkedPrefillBackend):
                 if type == "grammar":
                     if grammar == "json":
                         return self.xgrammar_compiler.compile_builtin_json_grammar()
+
                     else:
                         return self.xgrammar_compiler.compile_grammar(grammar)
                 elif type == "schema":

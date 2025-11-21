@@ -459,7 +459,6 @@ async def completions_impl(request: CompletionRequest, raw_request: Request) -> 
         "add_special_tokens": False,
     }
 
-    # Structured output handling
     if request.response_format:
         if request.response_format.type == "json_schema":
             obj = request.response_format.json_schema
@@ -468,7 +467,7 @@ async def completions_impl(request: CompletionRequest, raw_request: Request) -> 
                 sampling_params_dict["guided_json"] = json.dumps(obj.json_schema)
         elif request.response_format.type == "json_object":
             sampling_params_dict["guided_grammar"] = "json"
-    
+
     sampling_params = SamplingParams()
     sampling_params.init(tokenizer=g_objs.httpserver_manager.tokenizer, **sampling_params_dict)
     sampling_params.verify()

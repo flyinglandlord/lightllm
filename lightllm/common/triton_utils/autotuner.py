@@ -12,7 +12,7 @@ from frozendict import frozendict
 from lightllm.utils.device_utils import get_current_device_name
 from lightllm.utils.log_utils import init_logger
 from typing import Callable, Optional, Union, List
-from lightllm.utils.envs_utils import get_triton_autotune_level
+from lightllm.utils.envs_utils import get_env_start_args, get_triton_autotune_level
 from lightllm.common.kernel_config import KernelConfigs
 from lightllm.utils.dist_utils import get_global_world_size, get_global_rank, get_current_rank_in_node
 
@@ -218,6 +218,35 @@ class Autotuner:
             logger.info(f"Loading cached configs for {self.kernel_name} - {static_key}")
             with open(cache_file, "rb") as f:
                 self.cached_configs[static_key] = orjson.loads(f.read())
+        elif get_env_start_args().enable_kernel_config_fallback:
+            # list the all triton versions dir
+            possilble_triton_versions = os.listdir(os.path.join(Path(__file__).parent, "autotune_kernel_configs"))
+            # get the current triton version
+            current_triton_version = get_triton_version()
+            # try sort by the distance between current triton version and possilble triton versions
+            possilble_triton_versions = sorted(
+                possilble_triton_versions,
+                key=lambda x: abs(
+                    int(x.replace("triton_", "").replace(".", ""))
+                    - int(current_triton_version.replace("triton_", "").replace(".", ""))
+                ),
+            )
+            for triton_version in possilble_triton_versions:
+                fallback_cache_file = os.path.join(
+                    Path(__file__).parent,
+                    "autotune_kernel_configs",
+                    triton_version,
+                    get_current_device_name(),
+                    self.kernel_name,
+                    KernelConfigs.get_config_file_name(static_key),
+                )
+                if os.path.exists(fallback_cache_file):
+                    logger.warning(
+                        f"Fallback loading cached configs for {self.kernel_name} - {static_key} "
+                        f"from triton version {triton_version}"
+                    )
+                    with open(fallback_cache_file, "rb") as f:
+                        self.cached_configs[static_key] = orjson.loads(f.read())
         return True
 
     def kernel_warmup(self, static_key, *args, **kwargs):

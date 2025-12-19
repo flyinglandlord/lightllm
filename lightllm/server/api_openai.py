@@ -135,7 +135,7 @@ def _process_reasoning_stream(
     if index not in reasoning_parser_dict:
         is_force_reasoning = _get_reasoning_from_request(request)
         reasoning_parser_dict[index] = ReasoningParser(
-            self.reasoning_parser,
+            get_env_start_args().get("reasoning_parser", "qwen3"),
             request.stream_reasoning,
             is_force_reasoning,
         )

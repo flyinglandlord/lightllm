@@ -166,6 +166,10 @@ class ChatCompletionRequest(BaseModel):
     )  # noqa
     parallel_tool_calls: Optional[bool] = True
 
+    # OpenAI parameters for reasoning and others
+    chat_template_kwargs: Optional[Dict] = None
+    separate_reasoning: Optional[bool] = True
+
     # Additional parameters supported by LightLLM
     do_sample: Optional[bool] = True
     top_k: Optional[int] = -1
@@ -255,8 +259,9 @@ class UsageInfo(BaseModel):
 
 
 class ChatMessage(BaseModel):
-    role: str
-    content: str
+    role: Optional[str] = None
+    content: Optional[str] = None
+    reasoning_content: Optional[str] = None
     tool_calls: Optional[List[ToolCall]] = Field(default=None, examples=[None])
 
 

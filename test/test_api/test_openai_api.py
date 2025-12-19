@@ -701,6 +701,25 @@ def test_structured_generation():
         print(f"错误: {e}")
 
 
+def test_reasoning_parser():
+    """测试推理内容解析功能"""
+    client = LightLLMClient()
+
+    try:
+        print("=== 测试模型推思考 ===")
+        prompt = "How many r's are in 'strawberry'?"
+
+        # 测试JSON生成
+        result = client.simple_chat(
+            prompt, max_tokens=1000, chat_template_kwargs={"enable_thinking": True}, separate_reasoning=True
+        )
+        print("提示:", prompt)
+        print("思考内容", result["choices"][0]["message"]["reasoning_content"])
+        print("助手:", result["choices"][0]["message"]["content"])
+    except Exception as e:
+        print(f"错误: {e}")
+
+
 def main():
     # 基础功能测试
     test_completions()
@@ -709,6 +728,7 @@ def main():
     test_stream_chat()
     test_function_call()
     test_stream_function_call()
+    test_reasoning_parser()
 
     # 高级功能测试
     test_token_completions()

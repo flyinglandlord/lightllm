@@ -125,7 +125,6 @@ def _get_reasoning_from_request(request: ChatCompletionRequest) -> bool:
 
 
 def _process_reasoning_stream(
-    self,
     index: int,
     delta: str,
     reasoning_parser_dict: Dict[int, ReasoningParser],

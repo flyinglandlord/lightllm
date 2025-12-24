@@ -113,7 +113,7 @@ def _get_history_tool_calls_cnt(request: ChatCompletionRequest) -> int:
 
 def _get_reasoning_from_request(request: ChatCompletionRequest) -> bool:
     """Judge whether the request needs reasoning"""
-    reasoning_parser = get_env_start_args().get("reasoning_parser", None)
+    reasoning_parser = get_env_start_args().reasoning_parser
     if not reasoning_parser:
         return False
     if reasoning_parser in ["deepseek-v3"]:
@@ -133,11 +133,11 @@ def _process_reasoning_stream(
 ) -> tuple[Optional[str], str]:
     """Process reasoning content in streaming response"""
     if index not in reasoning_parser_dict:
-        is_force_reasoning = _get_reasoning_from_request(request)
+        request_enable_reasoning = _get_reasoning_from_request(request)
         reasoning_parser_dict[index] = ReasoningParser(
-            get_env_start_args().get("reasoning_parser", "qwen3"),
+            get_env_start_args().reasoning_parser,
             request.stream_reasoning,
-            is_force_reasoning,
+            request_enable_reasoning,
         )
     reasoning_parser = reasoning_parser_dict[index]
     return reasoning_parser.parse_stream_chunk(delta)
@@ -263,14 +263,14 @@ async def chat_completions_impl(request: ChatCompletionRequest, raw_request: Req
 
             # Handle reasoning content
             reasoning_text = None
-            reasoning_parser = get_env_start_args().get("reasoning_parser", None)
+            reasoning_parser = get_env_start_args().reasoning_parser
             if reasoning_parser and request.separate_reasoning:
-                is_force_reasoning = _get_reasoning_from_request(request)
+                request_enable_reasoning = _get_reasoning_from_request(request)
                 try:
                     parser = ReasoningParser(
                         model_type=reasoning_parser,
                         stream_reasoning=False,
-                        force_reasoning=is_force_reasoning,
+                        force_reasoning=request_enable_reasoning,
                     )
                     reasoning_text, text = parser.parse_non_stream(text)
                 except Exception as e:
@@ -313,9 +313,9 @@ async def chat_completions_impl(request: ChatCompletionRequest, raw_request: Req
                 text = ""
             chat_message = ChatMessage(
                 role="assistant",
-                content=text if text else None,
+                content=text if text else "",
                 tool_calls=tool_calls,
-                reasoning_content=reasoning_text if reasoning_text else None,
+                reasoning_content=reasoning_text if reasoning_text else "",
             )
             choice = ChatCompletionResponseChoice(
                 index=i,
@@ -350,8 +350,10 @@ async def chat_completions_impl(request: ChatCompletionRequest, raw_request: Req
             finish_reason = finish_status.get_finish_reason()
 
             # Handle reasoning content
-            if get_env_start_args("reasoning_parser", None) and request.separate_reasoning:
-                reasoning_text, delta = _process_reasoning_stream(index, delta, reasoning_parser_dict, content, request)
+            if get_env_start_args().reasoning_parser and request.separate_reasoning:
+                reasoning_text, delta = _process_reasoning_stream(
+                    index, delta, reasoning_parser_dict, request_output, request
+                )
                 if reasoning_text:
                     choice_data = ChatCompletionStreamResponseChoice(
                         index=0,
@@ -445,7 +447,7 @@ async def chat_completions_impl(request: ChatCompletionRequest, raw_request: Req
             else:
                 group_request_id = convert_sub_id_to_group_id(sub_req_id)
 
-                delta_message = DeltaMessage(role="assistant", content=request_output)
+                delta_message = DeltaMessage(role="assistant", content=delta)
                 if finish_status.is_finished():
                     finish_reason = finish_status.get_finish_reason()
                 stream_choice = ChatCompletionStreamResponseChoice(

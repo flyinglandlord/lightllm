@@ -51,6 +51,8 @@ class LightLLMClient:
         response = requests.post(f"{self.base_url}/v1/chat/completions", headers=self.headers, json=data, stream=True)
 
         if response.status_code == 200:
+            content_buffer = ""
+            reasoning_buffer = ""
             for line in response.iter_lines():
                 if line:
                     line = line.decode("utf-8")
@@ -60,8 +62,18 @@ class LightLLMClient:
                             break
                         try:
                             chunk = json.loads(data_str)
-                            if chunk["choices"][0]["delta"].get("content"):
-                                yield chunk["choices"][0]["delta"]["content"]
+                            delta = chunk["choices"][0]["delta"]
+
+                            # 处理内容
+                            if delta.get("content"):
+                                content_buffer += delta["content"]
+                                yield {"type": "content", "data": delta["content"]}
+
+                            # 处理推理思考
+                            if delta.get("reasoning_content"):
+                                reasoning_buffer += delta["reasoning_content"]
+                                yield {"type": "reasoning", "data": delta["reasoning_content"]}
+
                         except json.JSONDecodeError:
                             continue
         else:
@@ -396,7 +408,10 @@ def test_stream_chat():
         print("助手: ", end="", flush=True)
 
         for chunk in client.stream_chat("请写一个关于人工智能的短文"):
-            print(chunk, end="", flush=True)
+            if chunk["type"] == "content":
+                print(chunk["data"], end="", flush=True)
+            elif chunk["type"] == "reasoning":
+                print(chunk["data"], end="", flush=True)
         print("\n")
     except Exception as e:
         print(f"错误: {e}")
@@ -706,7 +721,7 @@ def test_reasoning_parser():
     client = LightLLMClient()
 
     try:
-        print("=== 测试模型推思考 ===")
+        print("=== 测试模型推理思考 ===")
         prompt = "How many r's are in 'strawberry'?"
 
         # 测试JSON生成
@@ -719,25 +734,53 @@ def test_reasoning_parser():
     except Exception as e:
         print(f"错误: {e}")
 
+    # Stream reasoning test
+    try:
+        print("=== 测试模型推理思考(流式输出接口) ===")
+        prompt = "How many r's are in 'strawberry'?"
+        print("提示:", prompt)
+        print("助手: ", end="", flush=True)
+
+        first_thinking = True
+        first_normal = True
+
+        for chunk in client.stream_chat(
+            prompt, chat_template_kwargs={"enable_thinking": True}, separate_reasoning=True, stream_reasoning=True
+        ):
+            if chunk["type"] == "content":
+                print("\n[回答]: ", end="", flush=True) if first_normal else None
+                first_normal = False
+                print(chunk["data"], end="", flush=True)
+            elif chunk["type"] == "reasoning":
+                print("\n[思考内容]: ", end="", flush=True) if first_thinking else None
+                first_thinking = False
+                print(chunk["data"], end="", flush=True)
+        print("\n")
+
+    except Exception as e:
+        print(f"错误: {e}")
+
 
 def main():
     # 基础功能测试
-    test_completions()
-    test_stream_completions()
-    test_simple_chat()
+    # test_completions()
+    # test_stream_completions()
+    # test_simple_chat()
     test_stream_chat()
-    test_function_call()
-    test_stream_function_call()
-    test_reasoning_parser()
+    # test_function_call()
+    # test_stream_function_call()
 
-    # 高级功能测试
-    test_token_completions()
-    test_multiple_prompts()
-    test_multiple_token_arrays()
-    test_logprobs()
-    test_echo()
-    test_stop_parameter()
-    test_structured_generation()
+
+# test_reasoning_parser()
+
+# 高级功能测试
+# test_token_completions()
+# test_multiple_prompts()
+# test_multiple_token_arrays()
+# test_logprobs()
+# test_echo()
+# test_stop_parameter()
+# test_structured_generation()
 
 
 if __name__ == "__main__":

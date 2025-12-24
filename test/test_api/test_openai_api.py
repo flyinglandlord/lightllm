@@ -15,7 +15,7 @@ from typing import Dict, List, Any, Optional
 class LightLLMClient:
     """LightLLM OpenAI API test cases"""
 
-    def __init__(self, base_url: str = "http://localhost:8000", model_name: str = "your_model_name"):
+    def __init__(self, base_url: str = "http://localhost:7777", model_name: str = "your_model_name"):
         self.base_url = base_url
         self.model_name = model_name
         self.headers = {"Content-Type": "application/json"}
@@ -185,6 +185,9 @@ class LightLLMClient:
                                 for tool_call in delta["tool_calls"]:
                                     tool_calls_buffer.append(tool_call)
                                     yield {"type": "tool_call", "data": tool_call}
+
+                            if delta.get("reasoning_content"):
+                                yield {"type": "reasoning", "data": delta["reasoning_content"]}
 
                         except json.JSONDecodeError:
                             continue
@@ -454,29 +457,41 @@ def test_function_call():
     try:
         # 测试天气查询
         print("用户: 北京今天天气怎么样？")
-        result = client.function_call("北京今天天气怎么样？", tools)
+        result = client.function_call(
+            "北京今天天气怎么样？", tools, chat_template_kwargs={"enable_thinking": True}, separate_reasoning=True
+        )
         message = result["choices"][0]["message"]
+
+        if message.get("reasoning_content"):
+            print("助手思考:", message["reasoning_content"])
 
         if message.get("tool_calls"):
             print("助手决定调用函数:")
             for tool_call in message["tool_calls"]:
                 print(f"  函数名: {tool_call['function']['name']}")
                 print(f"  参数: {tool_call['function']['arguments']}")
-        else:
+
+        if message.get("content"):
             print("助手:", message["content"])
         print()
 
         # 测试数学计算
         print("用户: 请计算 25 * 4 + 10 的结果")
-        result = client.function_call("请计算 25 * 4 + 10 的结果", tools)
+        result = client.function_call(
+            "请计算 25 * 4 + 10 的结果", tools, chat_template_kwargs={"enable_thinking": True}, separate_reasoning=True
+        )
         message = result["choices"][0]["message"]
+
+        if message.get("reasoning_content"):
+            print("助手思考:", message["reasoning_content"])
 
         if message.get("tool_calls"):
             print("助手决定调用函数:")
             for tool_call in message["tool_calls"]:
                 print(f"  函数名: {tool_call['function']['name']}")
                 print(f"  参数: {tool_call['function']['arguments']}")
-        else:
+
+        if message.get("content"):
             print("助手:", message["content"])
         print()
 
@@ -510,13 +525,31 @@ def test_stream_function_call():
         print("用户: 上海今天天气怎么样？")
         print("助手: ", end="", flush=True)
 
-        for chunk in client.stream_function_call("上海今天天气怎么样？", tools):
+        first_tool_call = True
+        first_thinking = True
+
+        for chunk in client.stream_function_call(
+            "上海今天天气怎么样？",
+            tools,
+            chat_template_kwargs={"enable_thinking": True},
+            separate_reasoning=True,
+            stream_reasoning=True,
+        ):
             if chunk["type"] == "content":
                 print(chunk["data"], end="", flush=True)
             elif chunk["type"] == "tool_call":
-                print(f"\n[函数调用: {chunk['data']['function']['name']}]")
+                if first_tool_call:
+                    print("\n[助手决定调用函数]: ", end="", flush=True)
+                    first_tool_call = False
+                if chunk["data"]["function"].get("name"):
+                    print(f"\n{chunk['data']['function']['name']}")
                 if chunk["data"]["function"].get("arguments"):
-                    print(f"参数: {chunk['data']['function']['arguments']}")
+                    print(f"{chunk['data']['function']['arguments']}", end="", flush=True)
+            elif chunk["type"] == "reasoning":
+                if first_thinking:
+                    print("\n[思考内容]: ", end="", flush=True)
+                    first_thinking = False
+                print(chunk["data"], end="", flush=True)
         print("\n")
 
     except Exception as e:

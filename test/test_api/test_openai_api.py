@@ -15,7 +15,7 @@ from typing import Dict, List, Any, Optional
 class LightLLMClient:
     """LightLLM OpenAI API test cases"""
 
-    def __init__(self, base_url: str = "http://localhost:7777", model_name: str = "your_model_name"):
+    def __init__(self, base_url: str = "http://localhost:8000", model_name: str = "your_model_name"):
         self.base_url = base_url
         self.model_name = model_name
         self.headers = {"Content-Type": "application/json"}

@@ -763,24 +763,22 @@ def test_reasoning_parser():
 
 def main():
     # 基础功能测试
-    # test_completions()
-    # test_stream_completions()
-    # test_simple_chat()
+    test_completions()
+    test_stream_completions()
+    test_simple_chat()
     test_stream_chat()
-    # test_function_call()
-    # test_stream_function_call()
+    test_function_call()
+    test_stream_function_call()
+    test_reasoning_parser()
 
-
-# test_reasoning_parser()
-
-# 高级功能测试
-# test_token_completions()
-# test_multiple_prompts()
-# test_multiple_token_arrays()
-# test_logprobs()
-# test_echo()
-# test_stop_parameter()
-# test_structured_generation()
+    # 高级功能测试
+    test_token_completions()
+    test_multiple_prompts()
+    test_multiple_token_arrays()
+    test_logprobs()
+    test_echo()
+    test_stop_parameter()
+    test_structured_generation()
 
 
 if __name__ == "__main__":

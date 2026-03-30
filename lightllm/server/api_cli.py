@@ -128,7 +128,7 @@ def make_argument_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--tool_call_parser",
         type=str,
-        choices=["qwen25", "llama3", "mistral", "deepseekv3", "qwen", "deepseekv31", "glm47", "kimi_k2"],
+        choices=["qwen25", "llama3", "mistral", "deepseekv3", "qwen", "deepseekv31", "deepseekv32", "glm47", "kimi_k2"],
         default=None,
         help="tool call parser type",
     )
@@ -200,7 +200,12 @@ def make_argument_parser() -> argparse.ArgumentParser:
         help="the dp balancer type, default is bs_balancer",
     )
     parser.add_argument(
-        "--max_req_total_len", type=int, default=16384, help="the max value for req_input_len + req_output_len"
+        "--max_req_total_len",
+        type=int,
+        default=16384,
+        help="Maximum allowed length for a request (input tokens + output tokens). "
+        "In PD (Prefill-Decode) mode, this value must be synchronized across the "
+        "PD master, prefill, and decode nodes.",
     )
     parser.add_argument(
         "--nccl_host",
@@ -224,6 +229,7 @@ def make_argument_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Whether or not to allow for custom models defined on the Hub in their own modeling files.",
     )
+    parser.add_argument("--detail_log", action="store_true", help="enable to print input infos in requests.")
     parser.add_argument("--disable_log_stats", action="store_true", help="disable logging throughput stats.")
     parser.add_argument("--log_stats_interval", type=int, default=10, help="log stats interval in second.")
     parser.add_argument(
@@ -236,11 +242,18 @@ def make_argument_parser() -> argparse.ArgumentParser:
         This setting allows you to turn off these warning checks.""",
     )
 
-    parser.add_argument("--router_token_ratio", type=float, default=0.0, help="token ratio to control router dispatch")
     parser.add_argument(
-        "--router_max_new_token_len", type=int, default=1024, help="the request max new token len for router"
+        "--router_token_ratio",
+        type=float,
+        default=None,
+        help="""Token used ratio to control router dispatch, range in [0.0, 1.0].
+            When the token VRAM usage ratio is higher than this value,
+            the dispatch strategy tends to be conservative.
+            When the token VRAM usage ratio is lower than this value,
+            the dispatching of requests tends to be aggressive.
+            The default value is None, meaning it will be automatically
+            determined by the internal system based on other startup parameters.""",
     )
-
     parser.add_argument(
         "--router_max_wait_tokens",
         type=int,
@@ -278,12 +291,16 @@ def make_argument_parser() -> argparse.ArgumentParser:
                         use env FIRST_ALLOWED_TOKENS to set the range, like FIRST_ALLOWED_TOKENS=1,2 ..""",
     )
     parser.add_argument(
-        "--enable_multimodal", action="store_true", help="Whether or not to allow to load additional visual models."
+        "--disable_vision",
+        action="store_true",
+        default=None,
+        help="if the model is a multimodal model, set to not load vision part model.",
     )
     parser.add_argument(
-        "--enable_multimodal_audio",
+        "--disable_audio",
         action="store_true",
-        help="Whether or not to allow to load additional audio models (requird --enable_multimodal).",
+        default=None,
+        help="if the model is a multimodal model, set to not load audio part model.",
     )
     parser.add_argument(
         "--enable_mps", action="store_true", help="Whether to enable nvidia mps for multimodal service."
@@ -346,10 +363,17 @@ def make_argument_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--llm_kv_type",
         type=str,
-        choices=["None", "int8kv", "int4kv"],
+        choices=["None", "int8kv", "int4kv", "fp8kv_sph", "fp8kv_spt"],
         default="None",
         help="""kv type used in llm, None for dtype that llm used in config.json.
-                fp8kv: not fully supported yet, will support in future""",
+                fp8kv_sph: use float8_e4m3fn to store kv cache for inference,
+                quant way is static per head kv quant.
+                fp8kv_spt: use float8_e4m3fn to store kv cache for inference,
+                quant way is static per tensor kv quant.
+                fp8kv_sph and fp8kv_spt requires --kv_quant_calibration_config_path
+                to load pre-computed FP8 scales.
+                Note: fp8kv_spt requires flashinfer-python>=0.6.5 (default is 0.6.3,
+                may cause runtime issues). Install with: pip install flashinfer-python==0.6.5""",
     )
     parser.add_argument(
         "--llm_kv_quant_group_size",

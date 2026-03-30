@@ -64,10 +64,10 @@ class StartArgs:
     nccl_port: int = field(default=None)
     use_config_server_to_init_nccl: bool = field(default=False)
     trust_remote_code: bool = field(default=False)
+    detail_log: bool = field(default=False)
     disable_log_stats: bool = field(default=False)
     log_stats_interval: int = field(default=10)
     router_token_ratio: float = field(default=0.0)
-    router_max_new_token_len: int = field(default=1024)
     router_max_wait_tokens: int = field(default=1)
     disable_aggressive_schedule: bool = field(default=False)
     disable_dynamic_prompt_cache: bool = field(default=False)
@@ -78,7 +78,8 @@ class StartArgs:
     output_constraint_mode: str = field(default="none", metadata={"choices": ["none", "simple", "xgrammar"]})
     first_token_constraint_mode: bool = field(default=False)
     enable_multimodal: bool = field(default=False)
-    enable_multimodal_audio: bool = field(default=False)
+    disable_vision: Optional[bool] = field(default=None)
+    disable_audio: Optional[bool] = field(default=None)
     enable_tpsp_mix_mode: bool = field(default=False)
     enable_dp_prefill_balance: bool = field(default=False)
     enable_decode_microbatch_overlap: bool = field(default=False)
@@ -124,7 +125,7 @@ class StartArgs:
     vit_att_backend: List[str] = field(
         default=("auto",), metadata={"choices": ["auto", "triton", "fa3", "sdpa", "xformers"]}
     )
-    llm_kv_type: str = field(default="None", metadata={"choices": ["None", "int8kv", "int4kv", "fp8kv"]})
+    llm_kv_type: str = field(default="None", metadata={"choices": ["None", "int8kv", "int4kv", "fp8kv_sph", "fp8kv_spt"]})
     llm_kv_quant_group_size: int = field(default=8)
     sampling_backend: str = field(default="triton", metadata={"choices": ["triton", "sglang_kernel"]})
     penalty_counter_mode: str = field(
@@ -160,6 +161,3 @@ class StartArgs:
     metric_port: int = field(default=None)
     multinode_httpmanager_port: int = field(default=12345)
     multi_level_kv_cache_port: int = field(default=None)
-    # multi_modal
-    enable_multimodal: bool = field(default=False)
-    enable_multimodal_audio: bool = field(default=False)

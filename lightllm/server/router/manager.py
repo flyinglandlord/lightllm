@@ -33,6 +33,7 @@ from lightllm.common.kv_cache_mem_manager import ReadOnlyStaticsMemoryManager
 from lightllm.utils.graceful_utils import graceful_registry
 from lightllm.utils.process_check import start_parent_check_thread
 from lightllm.utils.envs_utils import get_unique_server_name
+from .stats import RouterStatics
 from lightllm.utils.profiler import ProcessProfiler, ProfilerCmd
 
 
@@ -106,6 +107,7 @@ class RouterManager:
             if not self.args.enable_cpu_cache
             else CpuKvCacheClient(only_create_meta_data=True, init_shm_data=False)
         )
+        self.router_statics = RouterStatics(self.args)
         
         profiler_mode = args.enable_profiling
         self.profiler = ProcessProfiler(mode=profiler_mode, name="lightllm-router") if profiler_mode else None
@@ -260,6 +262,7 @@ class RouterManager:
                             f"dp_i {d_i} token used ratio: {token_ratio1} not contain prompt cache tree unrefed token\n"
                             f"dp_i {d_i} token used ratio: {token_ratio2} contain prompt cache tree unrefed token"
                         )
+                        logger.debug(self.router_statics.log_str())
                         self.metric_client.gauge_set("lightllm_batch_pause_size", paused_req_num)
                 # pd decode mode need to update token_load more frequently
                 self.req_queue.update_token_load(self.running_batch, force_update=self.is_pd_decode_mode)
@@ -351,7 +354,7 @@ class RouterManager:
 
     def _filter_reqs_from_running_batch(self):
         if self.running_batch is not None:
-            self.running_batch.filter_out_finished_req(self.shm_req_manager)
+            self.running_batch.filter_out_finished_req(self.shm_req_manager, self.router_statics)
             if self.running_batch.is_clear():
                 self.running_batch = None
         return
@@ -434,6 +437,8 @@ class RouterManager:
             Batch.merge_two_batch(self.running_batch, self.schedule_new_batch)
         )
         self.schedule_new_batch = Batch.merge_two_batch(self.schedule_new_batch, new_batch)
+        if self.schedule_new_batch is not None:
+            logger.info(f"gen new batch, {self.schedule_new_batch.simple_log()}")
         return
 
     def _multinode_tp_generate_new_batch(self):

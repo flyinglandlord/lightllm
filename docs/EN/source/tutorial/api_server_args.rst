@@ -190,11 +190,6 @@ Scheduling Parameters
 
     Threshold for determining if the service is busy, default is ``0.0``. Once the kv cache usage exceeds this value, it will directly switch to conservative scheduling.
 
-.. option:: --router_max_new_token_len
-
-    The request output length used by the scheduler when evaluating request kv usage, default is ``1024``, generally lower than the max_new_tokens set by the user. This parameter only takes effect when --router_token_ratio is greater than 0.
-    Setting this parameter will make request scheduling more aggressive, allowing the system to process more requests simultaneously, but will inevitably cause request pause and recalculation.
-
 .. option:: --router_max_wait_tokens
 
     Trigger scheduling of new requests every router_max_wait_tokens decoding steps, default is ``6``
@@ -246,13 +241,13 @@ Output Constraint Parameters
 Multimodal Parameters
 ---------------------
 
-.. option:: --enable_multimodal
+.. option:: --disable_vision
 
-    Whether to allow loading additional visual models
+    If the model is a multimodal model, set this to not load the vision part model (default is None, auto-detected based on model)
 
-.. option:: --enable_multimodal_audio
+.. option:: --disable_audio
 
-    Whether to allow loading additional audio models (requires --enable_multimodal)
+    If the model is a multimodal model, set this to not load the audio part model (default is None, auto-detected based on model)
 
 .. option:: --enable_mps
 
@@ -337,6 +332,16 @@ Performance Optimization Parameters
     * ``fa3``: Use Flash-Attention 3 backend
     * ``flashinfer``: Use FlashInfer backend
     * ``triton``: Use Triton backend
+
+.. option:: --llm_kv_type
+
+    Set the KV cache data type for inference. Available options:
+
+    * ``None``: Use the dtype from model's config.json
+    * ``int8kv``: INT8 KV quantization
+    * ``int4kv``: INT4 KV quantization
+    * ``fp8kv_sph``: FP8 static per-head quantization, uses fa3 backend
+    * ``fp8kv_spt``: FP8 static per-tensor quantization, uses flashinfer backend
 
 .. option:: --disable_cudagraph
 

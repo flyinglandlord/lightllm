@@ -7,6 +7,7 @@ from lightllm.common.basemodel.batch_objs import ModelInput
 from lightllm.utils.envs_utils import (
     enable_diverse_mode_gqa_decode_fast_kernel,
     enable_triton_mtp_kernel,
+    enable_triton_mtp_kernel,
     get_diverse_max_batch_shared_group_size,
     enable_dynamic_mtp_verify,
     get_env_start_args
@@ -212,6 +213,33 @@ def build_diverse_shared_group_infos(run_reqs: List[InferReq]) -> Tuple[torch.Te
     b_shared_seq_len = torch.tensor(b_shared_seq_len, dtype=torch.int32, device="cpu")
     b_mark_shared_group = torch.tensor(b_mark_shared_group, dtype=torch.int32, device="cpu")
     return b_shared_seq_len, b_mark_shared_group
+
+
+def build_mtp_shared_group_infos(
+    b_mtp_index: torch.Tensor,
+) -> torch.Tensor:
+    # Similar to build_diverse_shared_group_infos, 
+    # but the grouping logic is based on b_mtp_index, which indicates the MTP step of each request
+    max_batch_shared_group_size = get_diverse_max_batch_shared_group_size()
+    b_mark_shared_group = []
+    num_reqs = b_mtp_index.shape[0]
+    if num_reqs == 0:
+        return torch.zeros_like(b_mtp_index, dtype=torch.int32, device="cpu")
+    current_group = []
+    for i in range(num_reqs):
+        step = b_mtp_index[i].item()
+        if len(current_group) == 0:
+            current_group.append(i)
+        else:
+            prev_step = b_mtp_index[i - 1].item()
+            if step == prev_step + 1 and len(current_group) < max_batch_shared_group_size:
+                current_group.append(i)
+            else:
+                b_mark_shared_group.extend([0] * (len(current_group) - 1) + [len(current_group)])
+                current_group = [i]
+    if current_group:
+        b_mark_shared_group.extend([0] * (len(current_group) - 1) + [len(current_group)])
+    return torch.tensor(b_mark_shared_group, dtype=torch.int32, device="cpu")
 
 
 def build_mtp_shared_group_infos(

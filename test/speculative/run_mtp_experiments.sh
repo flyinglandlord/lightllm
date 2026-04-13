@@ -6,20 +6,20 @@
 # =============================================================================
 
 set -e
-export CUDA_VISIBLE_DEVICES=4,5,6,7
+export CUDA_VISIBLE_DEVICES=0,1,2,3
 
 # =============================================================================
 # Configurable Parameters (can be overridden via command line arguments)
 # =============================================================================
 
 # Base directory configuration
-PROJECT_DIR="/data/nvme0/chenjunyi/project/lightllm"
+PROJECT_DIR="/data/chenjunyi/project/lightllm"
 BASE_DIR="${PROJECT_DIR}/test/speculative"
 SCRIPTS_DIR="${BASE_DIR}/qwen3-32b"
 HELPER_SCRIPT="${BASE_DIR}/helper.py"
 BENCH_SCRIPT="${BASE_DIR}/bench_throughput.sh"
 DATASET="${PROJECT_DIR}/datasets/gsm8k.json"
-TOKENIZER="/mtc/models/qwen3-32b"
+TOKENIZER="/data/chenjunyi/models/qwen3-32b"
 
 # Experiment configuration
 MTP_STEPS=(4 8 12)

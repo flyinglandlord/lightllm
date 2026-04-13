@@ -13,12 +13,13 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-MODEL_DIR=/mtc/models/qwen3-32b 
-DRAFT_MODEL_DIR=/mtc/models/qwen3-32b-eagle3
+MODEL_DIR=/data/chenjunyi/models/qwen3-32b 
+DRAFT_MODEL_DIR=/data/chenjunyi/models/qwen3-32b-eagle3
 
 LOADWORKER=18 python -m lightllm.server.api_server --port 8088 \
 --tp 4 --max_total_token_num 200000 \
 --model_dir ${MODEL_DIR} \
+--enable_prefill_cudagraph \
 --mtp_mode eagle3 \
 --mtp_draft_model_dir ${DRAFT_MODEL_DIR} \
 --mtp_step ${MTP_STEP}  \

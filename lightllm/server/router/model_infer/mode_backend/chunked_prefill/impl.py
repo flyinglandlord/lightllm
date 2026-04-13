@@ -50,6 +50,7 @@ class ChunkedPrefillBackend(ModeBackend):
             self.decode = self.decode_normal
 
         self.classed_req_strict_prefill = False
+        self._prefill_count = 0
         return
 
     def infer_loop(self):
@@ -107,6 +108,8 @@ class ChunkedPrefillBackend(ModeBackend):
         event_pack: OverlapEventPack,
         prefill_reqs: List[InferReq],
     ):
+        self._prefill_count += 1
+        logger.info(f"[Prefill Stats] prefill 执行次数：{self._prefill_count}")
         # 第一阶段: 模型推理
         model_input, run_reqs = prepare_prefill_inputs(prefill_reqs, is_chuncked_mode=not self.disable_chunked_prefill)
         with torch.cuda.stream(g_infer_context.get_overlap_stream()):
@@ -185,6 +188,8 @@ class ChunkedPrefillBackend(ModeBackend):
         event_pack: OverlapEventPack,
         prefill_reqs: List[InferReq],
     ):
+        self._prefill_count += 1
+        logger.info(f"[Prefill Stats] prefill 执行次数：{self._prefill_count}")
         model_input, run_reqs = prepare_prefill_inputs(prefill_reqs, is_chuncked_mode=not self.disable_chunked_prefill)
         with torch.cuda.stream(g_infer_context.get_overlap_stream()):
             model_output = self.model.forward(model_input)

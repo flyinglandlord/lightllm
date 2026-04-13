@@ -10,10 +10,8 @@ with profile(
     profile_memory=False,
     on_trace_ready=torch.profiler.tensorboard_trace_handler("./log/"),
 ) as prof:
-    rand_vals = torch.rand_like(draft_probs_tensor)
-    accepted_mask = draft_probs_tensor > rand_vals
-    valid_steps = torch.cumprod(accepted_mask.to(torch.int32), dim=0)
-    dynamic_mtp_sizes = valid_steps.sum(dim=0)
+    a = torch.cat([draft_probs_tensor for _ in range(100)], dim=0)  # Simulating a workload by concatenating the tensor multiple times
+    b = torch.stack([draft_probs_tensor for _ in range(100)], dim=0)  # Simulating another workload by stacking the tensor multiple times
     pass
 
-print(prof.key_averages().table(sort_by="cuda_time_total", row_limit=40))
+print(prof.key_averages().table(sort_by="cuda_time_total", row_limit=100))

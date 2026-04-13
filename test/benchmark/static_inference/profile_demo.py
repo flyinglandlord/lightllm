@@ -16,4 +16,4 @@ with profile(
     dynamic_mtp_sizes = valid_steps.sum(dim=0)
     pass
 
-print(prof.key_averages().table(sort_by="cuda_time_total", row_limit=20))
+print(prof.key_averages().table(sort_by="cuda_time_total", row_limit=40))

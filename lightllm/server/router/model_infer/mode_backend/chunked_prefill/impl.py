@@ -36,6 +36,7 @@ class ChunkedPrefillBackend(ModeBackend):
 
         # 用于控制每一步是执行prefill 和 decode 还是跳过
         self.control_state_machine = ControlState()
+        self.support_overlap = False
 
         # 在 mtp 模式下切换绑定的prefill 和 decode 函数
         if get_env_start_args().mtp_mode:
@@ -238,11 +239,22 @@ class ChunkedPrefillBackend(ModeBackend):
         """
         MTP解码的通用流程，整合eagle和vanilla的共同逻辑
         """
+        profile_total_start = time.perf_counter()
+        profile_pre_start = profile_total_start
         model_input, run_reqs = prepare_decode_inputs(decode_reqs)
+        profile_pre_ms = (time.perf_counter() - profile_pre_start) * 1000
 
         with torch.cuda.stream(g_infer_context.get_overlap_stream()):
             b_mtp_index_cpu = model_input.b_mtp_index
+            inference_start_event = torch.cuda.Event(enable_timing=True)
+            inference_end_event = torch.cuda.Event(enable_timing=True)
+            main_forward_start_event = torch.cuda.Event(enable_timing=True)
+            main_forward_end_event = torch.cuda.Event(enable_timing=True)
+
+            inference_start_event.record()
+            main_forward_start_event.record()
             model_output = self.model.forward(model_input)
+            main_forward_end_event.record()
             next_token_ids, next_token_logprobs = sample(model_output.logits, run_reqs, self.eos_id)
             # verify the next_token_ids
             b_req_mtp_start_loc = [index for index, mtp_index in enumerate(b_mtp_index_cpu) if mtp_index == 0]
@@ -315,27 +327,39 @@ class ChunkedPrefillBackend(ModeBackend):
                 gpu_tensor=mtp_accept_len,
             )
 
+            inference_end_event.record()
             sync_event = torch.cuda.Event()
             sync_event.record()
 
         # 第二阶段
+        profile_post_stage2_ms = 0.0
+        profile_post_stage3_ms = 0.0
         event_pack.notify_post_handle_and_wait_pre_post_handle()
+        profile_post_segment_start = time.perf_counter()
         self._update_mtp_verify_token_num(decode_reqs=decode_reqs)
+        profile_post_stage2_ms += (time.perf_counter() - profile_post_segment_start) * 1000
 
         verify_event.synchronize()
+        profile_post_segment_start = time.perf_counter()
         accepted_index_cpu_numpy = accepted_index_cpu.numpy()
         verify_ok_reqs = [run_reqs[i] for i in range(len(run_reqs)) if accepted_index_cpu_numpy[i] == 1]
+        profile_post_stage2_ms += (time.perf_counter() - profile_post_segment_start) * 1000
         if self.enable_dynamic_mtp:
             dynamic_mtp_event.synchronize()
+            profile_post_segment_start = time.perf_counter()
             self._update_dynamic_mtp_size_cpu_part(
                 run_reqs=run_reqs, dynamic_sizes_cpu=dynamic_sizes_cpu, accepted_index_cpu=accepted_index_cpu
             )
+            profile_post_stage2_ms += (time.perf_counter() - profile_post_segment_start) * 1000
+        profile_post_segment_start = time.perf_counter()
         update_packs = self._pre_post_handle(verify_ok_reqs, is_chuncked_mode=False)
+        profile_post_stage2_ms += (time.perf_counter() - profile_post_segment_start) * 1000
 
         # 第三阶段
         event_pack.notify_forward_and_wait_post_handle()
         sync_event.synchronize()
 
+        profile_post_segment_start = time.perf_counter()
         # 处理需要释放的内存索引
         need_free_mem_indexes = model_input.mem_indexes_cpu[accepted_index_cpu == 0]
         if additional_mem_indexes_cpu is not None:
@@ -355,6 +379,24 @@ class ChunkedPrefillBackend(ModeBackend):
             g_infer_state_lock.acquire()
             g_infer_context.req_manager.mem_manager.free(need_free_mem_indexes)
             g_infer_state_lock.release()
+
+        profile_post_stage3_ms += (time.perf_counter() - profile_post_segment_start) * 1000
+        profile_post_ms = profile_post_stage2_ms + profile_post_stage3_ms
+        profile_total_ms = (time.perf_counter() - profile_total_start) * 1000
+        logger.info(
+            "MTP_DECODE_PROFILE "
+            f"batch_size={len(decode_reqs)} "
+            f"run_reqs={len(run_reqs)} "
+            f"model_batch_size={getattr(model_input, 'batch_size', len(run_reqs))} "
+            f"verify_ok_reqs={len(verify_ok_reqs)} "
+            f"pre_process_ms={profile_pre_ms:.6f} "
+            f"inference_ms={inference_start_event.elapsed_time(inference_end_event):.6f} "
+            f"main_forward_ms={main_forward_start_event.elapsed_time(main_forward_end_event):.6f} "
+            f"post_stage2_ms={profile_post_stage2_ms:.6f} "
+            f"post_stage3_ms={profile_post_stage3_ms:.6f} "
+            f"post_process_ms={profile_post_ms:.6f} "
+            f"total_ms={profile_total_ms:.6f}"
+        )
 
         # 第四阶段
         event_pack.notify_pre_post_handle()

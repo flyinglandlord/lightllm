@@ -1,4 +1,5 @@
 import copy
+import os
 import time
 import uuid
 import uvloop
@@ -73,6 +74,16 @@ class RouterManager:
 
         self.pause_strategy = Fcfs()
         self.running_batch: Batch = None
+        self.run_batch_size = self._read_run_batch_size()
+        self.run_batch_timeout_s = self._read_run_batch_timeout_s()
+        self.run_batch_wait_start_time = None
+        if self.run_batch_size > 0:
+            logger.info(
+                f"LIGHTLLM_RUN_BATCH={self.run_batch_size}, router will wait for this many queued requests "
+                "before scheduling a new batch."
+            )
+            if self.run_batch_timeout_s > 0:
+                logger.info(f"LIGHTLLM_RUN_BATCH_TIMEOUT_MS={int(self.run_batch_timeout_s * 1000)}")
         self.eos_id = args.eos_id
         self.has_wait_tokens = 0
         self.max_wait_tokens = args.router_max_wait_tokens
@@ -109,6 +120,36 @@ class RouterManager:
         self.schedule_task = None
         self.overlap_event = threading.Event()
         return
+
+    @staticmethod
+    def _read_run_batch_size() -> int:
+        value = os.environ.get("LIGHTLLM_RUN_BATCH", "").strip()
+        if not value:
+            return 0
+        try:
+            run_batch_size = int(value)
+        except ValueError:
+            logger.warning(f"ignore invalid LIGHTLLM_RUN_BATCH={value!r}, expected a positive integer.")
+            return 0
+        if run_batch_size <= 0:
+            logger.warning(f"ignore LIGHTLLM_RUN_BATCH={run_batch_size}, expected a positive integer.")
+            return 0
+        return run_batch_size
+
+    @staticmethod
+    def _read_run_batch_timeout_s() -> float:
+        value = os.environ.get("LIGHTLLM_RUN_BATCH_TIMEOUT_MS", "").strip()
+        if not value:
+            return 0.0
+        try:
+            timeout_ms = float(value)
+        except ValueError:
+            logger.warning(f"ignore invalid LIGHTLLM_RUN_BATCH_TIMEOUT_MS={value!r}, expected a non-negative number.")
+            return 0.0
+        if timeout_ms < 0:
+            logger.warning(f"ignore LIGHTLLM_RUN_BATCH_TIMEOUT_MS={timeout_ms}, expected a non-negative number.")
+            return 0.0
+        return timeout_ms / 1000.0
 
     async def wait_to_model_ready(self):
         # 初始化模型
@@ -300,6 +341,38 @@ class RouterManager:
                 self.overlap_event.wait(timeout=0.020)
                 self.overlap_event.clear()
                 time.sleep(0.003)
+                if self.run_batch_size > 0:
+                    wait_req_num = self.req_queue.get_wait_req_num()
+                    if wait_req_num == 0:
+                        self.run_batch_wait_start_time = None
+                        return None
+
+                    if wait_req_num < self.run_batch_size:
+                        if self.run_batch_wait_start_time is None:
+                            self.run_batch_wait_start_time = time.time()
+
+                        wait_time = time.time() - self.run_batch_wait_start_time
+                        if self.run_batch_timeout_s <= 0 or wait_time < self.run_batch_timeout_s:
+                            return None
+
+                        logger.warning(
+                            f"LIGHTLLM_RUN_BATCH timeout after {wait_time:.3f}s; "
+                            f"flush partial batch with {wait_req_num}/{self.run_batch_size} queued requests."
+                        )
+                        limit_router_queue_length = (
+                            wait_req_num
+                            if limit_router_queue_length is None
+                            else min(limit_router_queue_length, wait_req_num)
+                        )
+                        self.run_batch_wait_start_time = None
+                    else:
+                        self.run_batch_wait_start_time = None
+
+                        if limit_router_queue_length is None:
+                            limit_router_queue_length = self.run_batch_size
+                        else:
+                            limit_router_queue_length = min(limit_router_queue_length, self.run_batch_size)
+
                 new_batch = self.req_queue.generate_new_batch(running_batch, limit_router_queue_length)
                 return new_batch
 

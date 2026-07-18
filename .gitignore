@@ -6,3 +6,7 @@ dist
 .idea
 .vscode
 tmp/
+datasets/
+experiment_results/
+hf_datasets_cache/
+wandb/

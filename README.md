@@ -1,90 +1,111 @@
-# Pre$^3$: Enabling Deterministic Pushdown Automata for Faster Structured LLM Generation
+# LightLLM Pre3 交付项目
 
-[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-[Paper](https://openreview.net/pdf?id=g1aBeiyZEi)
-<!--
-[![arXiv](https://img.shields.io/badge/HarmoniCa-2410.01723-b31b1b)](https://arxiv.org/pdf/2410.01723)
-[![GitHub Stars](https://img.shields.io/github/stars/ModelTC/HarmoniCa.svg?style=social&label=Star&maxAge=60)](https://github.com/ModelTC/HarmoniCa)
--->
+本项目基于 LightLLM，集成了 `pre3` 与 `xgrammar` 两种结构化解码后端，并提供固定 benchmark 脚本用于比较 JSON EBNF 文法约束下的 `mean per token latency`。
 
-[Junyi Chen](https://github.com/flyinglandlord), [Shihao Bai](https://github.com/shihaobai), [Zaijun Wang](https://github.com/hiworldwzj), [Siyu Wu](https://wusiyu.me/), Chuheng Du, [Hailong Yang](https://thomas-yang.github.io/), [Ruihao Gong📧](https://xhplus.github.io/), [Shengzhong Liu📧](https://liushengzhong1023.github.io/), Fan Wu, Guihai Chen
+## 环境准备
 
-(📧 denotes corresponding author.)
-
-This is the official implementation of our paper introducing Pre$^3$, an efficient structured generation method for LLMs that optimizes LR(1) grammar processing. Existing approaches parse LR(1) grammars into pushdown automata (PDA), incurring runtime overhead for context-dependent token processing—particularly inefficient under large inference batches. In contrast, $\text{Pre}^3$ leverages precomputed prefix-conditioned edges during preprocessing to enable lightweight transitions and parallel processing. Additionally, we introduce a novel algorithm that transforms LR(1) transition graphs into deterministic pushdown automata (DPDA), eliminating runtime path exploration while maintaining minimal overhead. Seamlessly integrable with standard LLM inference frameworks, $\text{Pre}^3$ achieves up to 40% faster time per output token (TPOT) and 36% higher throughput in large batch size simulation experiments.
-
-## News
-<!--
-* **May 28, 2025**: 🔥 We release our Python code presented in our paper. Have a try!
--->
-* **May 15, 2025**: 🌟 Our paper has been accepted by ACL 2025 Main Conference! 🎉 Cheers!
-
-
-## Overview
-
-<p>
-<img src= ./img/overview.png width="700"/>
-</p>
-
-Structured generation is crucial for LLM applications requiring formatted outputs like JSON or function calls, where constrained decoding ensures syntactic validity. Existing approaches based on LR(1) grammars or pushdown automata (PDA) face inherent inefficiencies: LR(1) methods incur computational overhead from context-dependent token processing, while PDA-based solutions suffer from non-deterministic transitions requiring runtime stack management. To address these limitations, we propose Pre³, a deterministic pushdown automaton (DPDA) framework that transforms LR(1) grammars through prefix-conditioned edges and cyclic-aware conversion. By precomputing all transitions and enabling parallel verification, Pre³ eliminates runtime exploration while maintaining grammatical constraints, providing an efficient solution for structured generation tasks. The framework integrates seamlessly with standard LLM inference pipelines.
-
-## Quick Start
-
-After cloning the repository, you can follow these steps to try our JSON structured generation.
-
-### Requirements
-
-With Python (=3.9) and PyTorch (>2.0) installed, execute the following command to install the  necessary packages and pre-trained models.
+如果需要从头安装依赖：
 
 ```bash
-git checkout pre3-integrated
+pip install vllm==0.8.5 --no-deps
 pip install -r requirements.txt
 ```
 
-### Training
-
-We'd like to provide the following script to launch the inference framework. More details about our method can be found in our paper and blog.
+运行前请确认模型目录可访问，例如：
 
 ```bash
-bash ./launch_lightllm.sh
+ls /mtc/chenjunyi1/models/deepseek-v2-lite
 ```
 
-### Inference
+## Benchmark
 
-Here is the corresponding command for inference.
+使用脚本：
 
 ```bash
-python test/format_out/test_pre3_constraint.py
+scripts/benchmark_jsonschemabench.py
 ```
 
-## TODO
+脚本提供模型路径和并发规模两个配置选项：
 
-* A more robust and efficient implementation.
+- `--batch_size`: 每轮积攒并同时运行的请求数。
+- `--model_dir`: LightLLM 模型路径。
 
-* Adapt to a wider variety of grammars.
+运行命令示例：
 
-## Acknowledgments
-
-Our code was developed based on LightLLM, an efficient Python-based LLM inference framework. We thank the following projects for their pioneering work in structured generation that inspired our research:
-
-- [SynCode](https://github.com/structuredllm/syncode) for its innovative approaches to LR(1)-grammar-constrained decoding.
-
-- [Outlines](https://github.com/dottxt-ai/outlines) for its finite state machine-based structured generation techniques.
-
-- [XGrammar](https://github.com/mlc-ai/xgrammar) for its breakthrough in context-free grammar processing and pushdown automata optimization.
-
-<!--
-## Citation
-
-If you find our HarmoniCa useful or relevant to your research, please kindly cite our paper:
-
+```bash
+/data/nvme0/chenjunyi/miniconda3/envs/pre3/bin/python scripts/benchmark_jsonschemabench.py \
+  --batch_size 128 \
+  --model_dir /mtc/chenjunyi1/models/deepseek-v2-lite
 ```
-@inproceedings{
-    anonymous2025harmonica,
-    title={HarmoniCa: Harmonizing Training and Inference for Better Feature Caching in Diffusion Transformer Acceleration},
-    author={Yushi Huang and Zining Wang and Ruihao Gong and Jing Liu and Xinjie Zhang and Jinyang Guo and Xianglong Liu and Jun Zhang},
-    booktitle={Forty-second International Conference on Machine Learning},
-    year={2025},
-}
+
+脚本会自动完成以下流程：
+
+1. 使用固定 JSONSchemaBench prompt。
+2. 将同一个请求重复 `batch_size` 次，避免不同请求长度导致 batch 不齐。
+3. 使用 `test/format_out/test_xgrammar_constraint.py` 中的 EBNF JSON 文法作为 `guided_grammar` 约束。
+4. 设置 `LIGHTLLM_RUN_BATCH=batch_size`，等待攒够请求后再调度。
+5. 依次启动并测试 `xgrammar` 和 `pre3`。
+6. 从服务端日志中解析 `mean_per_token_cost_time`。
+7. 输出两种后端的平均 `mean per token latency`、pre3 相比 xgrammar 的降低百分比，以及两次运行的日志保存路径。
+
+为加快启动速度，脚本中已固定关闭：
+
+- `--disable_cudagraph`
+- `DISABLE_CHECK_MAX_LEN_INFER=1`
+
+## 输出示例
+
+一次 batch size 128 的输出示例：
+
+```text
+Benchmark result
+xgrammar mean per token latency: 45.4062 ms/token
+pre3 mean per token latency: 20.2777 ms/token
+pre3 latency reduction vs xgrammar: 55.34%
+xgrammar log dir: experiment_results/jsonschemabench_ebnf_batch128_20260719_015022/xgrammar/lightllm_logs
+xgrammar stdout log: experiment_results/jsonschemabench_ebnf_batch128_20260719_015022/xgrammar/server_stdout.log
+pre3 log dir: experiment_results/jsonschemabench_ebnf_batch128_20260719_015022/pre3/lightllm_logs
+pre3 stdout log: experiment_results/jsonschemabench_ebnf_batch128_20260719_015022/pre3/server_stdout.log
+summary: experiment_results/jsonschemabench_ebnf_batch128_20260719_015022/summary.json
 ```
--->
+
+其中：
+
+- `xgrammar mean per token latency`: xgrammar 后端的平均单 token 延迟。
+- `pre3 mean per token latency`: pre3 后端的平均单 token 延迟。
+- `pre3 latency reduction vs xgrammar`: pre3 相比 xgrammar 的延迟降低比例，计算方式为 `(xgrammar - pre3) / xgrammar * 100%`。
+- `summary`: 本次测试的完整结构化结果文件。
+
+## 结果文件
+
+每次运行会生成独立目录：
+
+```text
+experiment_results/jsonschemabench_ebnf_batch{batch_size}_{timestamp}/
+```
+
+目录结构示例：
+
+```text
+experiment_results/jsonschemabench_ebnf_batch128_20260719_015022/
+  summary.json
+  xgrammar/
+    server_stdout.log
+    lightllm_logs/
+  pre3/
+    server_stdout.log
+    lightllm_logs/
+```
+
+如需查看原始统计来源，可在对应 `server_stdout.log` 中搜索：
+
+```bash
+grep "mean_per_token_cost_time" experiment_results/jsonschemabench_ebnf_batch128_*/xgrammar/server_stdout.log
+grep "mean_per_token_cost_time" experiment_results/jsonschemabench_ebnf_batch128_*/pre3/server_stdout.log
+```
+
+## 注意事项
+
+- 脚本会自动选择空闲 GPU，默认使用 `tp=2`。
+- 测试完成后脚本会停止对应 LightLLM 服务进程。
+- `batch_size=128` 是当前推荐测试配置；更大的 batch 可能导致部分请求等待时间明显变长。

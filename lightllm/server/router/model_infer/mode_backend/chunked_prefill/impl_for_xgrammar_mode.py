@@ -1,5 +1,9 @@
+import os
+import time
+
 import torch
 from typing import List, Tuple
+import xgrammar as xgr
 
 from .impl import ChunkedPrefillBackend
 from lightllm.server.router.model_infer.mode_backend.generic_pre_process import (
@@ -21,15 +25,13 @@ class XgrammarBackend(ChunkedPrefillBackend):
         super().__init__()
 
     def init_custom(self):
-        import xgrammar as xgr
-
         self.tokenizer = get_tokenizer(
             self.args.model_dir, self.args.tokenizer_mode, trust_remote_code=self.args.trust_remote_code
         )
 
-        tokenizer_info = xgr.TokenizerInfo.from_huggingface(self.tokenizer)
-        self.xgrammar_compiler = xgr.GrammarCompiler(tokenizer_info, max_threads=8)
-        self.xgrammar_token_bitmask = xgr.allocate_token_bitmask(1, tokenizer_info.vocab_size)
+        self.tokenizer_info = xgr.TokenizerInfo.from_huggingface(self.tokenizer)
+        self.xgrammar_compiler = xgr.GrammarCompiler(self.tokenizer_info, max_threads=8)
+        self.xgrammar_token_bitmask = xgr.allocate_token_bitmask(1, self.tokenizer_info.vocab_size)
 
         eos_token_ids = []
         eos_token_ids.append(self.tokenizer.eos_token_id)
@@ -38,7 +40,6 @@ class XgrammarBackend(ChunkedPrefillBackend):
 
     @calculate_time(show=False, min_cost_ms=300)
     def decode(self):
-
         uninit_reqs, aborted_reqs, ok_finished_reqs, prefill_reqs, decode_reqs = self._get_classed_reqs(
             g_infer_context.infer_req_ids
         )
@@ -58,6 +59,7 @@ class XgrammarBackend(ChunkedPrefillBackend):
             all_has_no_constraint = all([not e.sampling_param.has_constraint_setting() for e in run_reqs])
             if not all_has_no_constraint:
                 for i, run_obj in enumerate(run_reqs):
+                    self.xgrammar_token_bitmask = xgr.allocate_token_bitmask(1, self.tokenizer_info.vocab_size)
                     self._mask_req_out_token(i, run_obj, logits[i])
 
             logits[logits == float("-inf")] = -1000000.0
@@ -124,18 +126,21 @@ class XgrammarBackend(ChunkedPrefillBackend):
         return
 
     def _mask_req_out_token(self, i, run_obj: InferReq, logits):
-        import xgrammar as xgr
-
         if run_obj.get_chuncked_input_token_len() == run_obj.get_cur_total_len():
             sample_params = run_obj.sampling_param
             if sample_params.guided_grammar is not None or sample_params.guided_json is not None:
                 sample_params.xgrammar_matcher.fill_next_token_bitmask(self.xgrammar_token_bitmask)
                 xgr.apply_token_bitmask_inplace(logits, self.xgrammar_token_bitmask.to(logits.device))
+                vocab_size = logits.shape[-1]
+                check_chunks = 3
+                step = max(1, vocab_size // check_chunks)
+                for offset in range(0, vocab_size, step):
+                    chunk_view = logits[offset : offset + step]
+                    if (chunk_view > -1e5).any().item():
+                        continue
         return
 
     def _init_req_xgrammer_matcher_infos(self, run_reqs: List[InferReq]):
-        import xgrammar as xgr
-
         for i, run_obj in enumerate(run_reqs):
             run_obj: InferReq = run_obj
             sample_params = run_obj.sampling_param

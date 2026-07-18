@@ -150,12 +150,39 @@ def get_vllm_kernel_extensions():
     ]
 
 
-setup(
-    name="lightllm_kernel",
-    version=version,
-    author="wangzaijun",
-    packages=find_packages(),
-    ext_modules=[
+def get_constraint_decode_kernel_extension():
+    return CUDAExtension(
+        "lightllm_constraint_decode_kernel",
+        sources=["./constraint_decode_kernel/src/check_dpda_kernel.cu"],
+        extra_compile_args={
+            "cxx": ["-std=c++17"],
+            "nvcc": [
+                "-std=c++17",
+                "-U__CUDA_NO_HALF_OPERATORS__",  # 这个是启用half不是禁用，可能默认是forbidden的。
+                "-U__CUDA_NO_HALF_CONVERSIONS__",
+                "-U__CUDA_NO_HALF2_OPERATORS__",
+                "-U__CUDA_NO_BFLOAT16_CONVERSIONS__",
+                "--expt-relaxed-constexpr",
+                "--expt-extended-lambda",
+                "--use_fast_math",
+                # "--ptxas-options=-v",
+                # "--ptxas-options=-O2",
+                "-lineinfo",
+            ],
+        },
+    )
+
+
+def should_only_install_constraint_decode_kernel():
+    value = os.environ.get("LIGHTLLM_INSTALL_ONLY_CONSTRAINT_DECODE_KERNEL", "")
+    return value.lower() in ("1", "true", "yes", "on")
+
+
+def get_ext_modules():
+    if should_only_install_constraint_decode_kernel():
+        return [get_constraint_decode_kernel_extension()]
+
+    return [
         CUDAExtension(
             "flash_llm_fp6_llm",
             ["./fp6_llm/csrc/fp6_linear.cu", "./fp6_llm/csrc/pybind.cpp"],
@@ -173,27 +200,16 @@ setup(
                 ],
             },
         ),
-        CUDAExtension(
-            "lightllm_constraint_decode_kernel",
-            sources=["./constraint_decode_kernel/src/check_dpda_kernel.cu"],
-            extra_compile_args={
-                "cxx": ["-std=c++17"],
-                "nvcc": [
-                    "-std=c++17",
-                    "-U__CUDA_NO_HALF_OPERATORS__",  # 这个是启用half不是禁用，可能默认是forbidden的。
-                    "-U__CUDA_NO_HALF_CONVERSIONS__",
-                    "-U__CUDA_NO_HALF2_OPERATORS__",
-                    "-U__CUDA_NO_BFLOAT16_CONVERSIONS__",
-                    "--expt-relaxed-constexpr",
-                    "--expt-extended-lambda",
-                    "--use_fast_math",
-                    # "--ptxas-options=-v",
-                    # "--ptxas-options=-O2",
-                    "-lineinfo",
-                ],
-            },
-        ),
+        get_constraint_decode_kernel_extension(),
         *get_vllm_kernel_extensions(),
-    ],
+    ]
+
+
+setup(
+    name="lightllm_kernel",
+    version=version,
+    author="wangzaijun",
+    packages=find_packages(),
+    ext_modules=get_ext_modules(),
     cmdclass={"build_ext": BuildExtension},
 )

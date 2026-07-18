@@ -11,6 +11,14 @@ pip install vllm==0.8.5 --no-deps
 pip install -r requirements.txt
 ```
 
+安装 LightLLM constraint decode kernel：
+
+```bash
+cd kernel
+LIGHTLLM_INSTALL_ONLY_CONSTRAINT_DECODE_KERNEL=1 pip install -e .
+cd ..
+```
+
 运行前请确认模型目录可访问，例如：
 
 ```bash

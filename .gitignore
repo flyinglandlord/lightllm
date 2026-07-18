@@ -10,3 +10,4 @@ datasets/
 experiment_results/
 hf_datasets_cache/
 wandb/
+trace/
